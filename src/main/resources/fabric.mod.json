@@ -1,0 +1,33 @@
+{
+	"schemaVersion": 1,
+	"id": "votekick",
+	"version": "1.0.2",
+	"name": "Vote Kick",
+	"description": "A simple mod to vote kick players from the server",
+	"authors": [
+		"Sierra"
+	],
+	"license": "MIT",
+	"icon": "assets/votekick/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"sierra.thing.votekick.VoteKickMod"
+		],
+		"client": [
+			"sierra.thing.votekick.client.VoteKickClient"
+		]
+	},
+	"mixins": [
+		"votekick.mixin.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.16.10",
+		"minecraft": "~1.21.4",
+		"java": ">=21",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"another-mod": "*"
+	}
+}
