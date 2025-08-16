@@ -1,6 +1,8 @@
 package sierra.thing.votekick.network;
 
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.fabricmc.fabric.api.networking.v1.FabricPacket;
+import net.fabricmc.fabric.api.networking.v1.PacketType;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import sierra.thing.votekick.VoteKickMod;
 
@@ -15,13 +17,37 @@ public record ShowVotePanelPayload(
         int noVotes,
         int votesNeeded,
         boolean isTarget
-) implements CustomPacketPayload {
-    public static final Type<ShowVotePanelPayload> TYPE = new Type<>(
-            ResourceLocation.fromNamespaceAndPath(VoteKickMod.MOD_ID, "show_vote_panel")
+) implements FabricPacket {
+    public static final PacketType<ShowVotePanelPayload> TYPE = PacketType.create(
+            new ResourceLocation(VoteKickMod.MOD_ID, "show_vote_panel"),
+            ShowVotePanelPayload::new
     );
 
+    public ShowVotePanelPayload(FriendlyByteBuf buf) {
+        this(
+                buf.readUtf(),
+                buf.readUtf(),
+                buf.readInt(),
+                buf.readInt(),
+                buf.readInt(),
+                buf.readInt(),
+                buf.readBoolean()
+        );
+    }
+
     @Override
-    public Type<?> type() {
+    public void write(FriendlyByteBuf buf) {
+        buf.writeUtf(title);
+        buf.writeUtf(subtitle);
+        buf.writeInt(time);
+        buf.writeInt(yesVotes);
+        buf.writeInt(noVotes);
+        buf.writeInt(votesNeeded);
+        buf.writeBoolean(isTarget);
+    }
+
+    @Override
+    public PacketType<?> getType() {
         return TYPE;
     }
 }

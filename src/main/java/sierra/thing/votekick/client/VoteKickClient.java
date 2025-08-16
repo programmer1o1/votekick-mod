@@ -2,7 +2,6 @@ package sierra.thing.votekick.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientLoginNetworking;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
@@ -10,15 +9,13 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sierra.thing.votekick.VoteKickMod;
-import sierra.thing.votekick.network.CastVotePayload;
-import sierra.thing.votekick.network.HideVotePanelPayload;
-import sierra.thing.votekick.network.ShowVotePanelPayload;
-import sierra.thing.votekick.network.UpdateVotePanelPayload;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -36,6 +33,12 @@ public class VoteKickClient implements ClientModInitializer {
 
     // Set when player votes so they can't spam votes
     private static boolean hasVoted = false;
+
+    // Channel identifiers
+    private static final ResourceLocation SHOW_VOTE_PANEL = new ResourceLocation(VoteKickMod.MOD_ID, "show_vote_panel");
+    private static final ResourceLocation UPDATE_VOTE_PANEL = new ResourceLocation(VoteKickMod.MOD_ID, "update_vote_panel");
+    private static final ResourceLocation HIDE_VOTE_PANEL = new ResourceLocation(VoteKickMod.MOD_ID, "hide_vote_panel");
+    private static final ResourceLocation CAST_VOTE = new ResourceLocation(VoteKickMod.MOD_ID, "cast_vote");
 
     @Override
     public void onInitializeClient() {
@@ -113,7 +116,9 @@ public class VoteKickClient implements ClientModInitializer {
         // Tell the server
         try {
             LOGGER.debug("Sending vote: {}", voteYes ? "YES" : "NO");
-            ClientPlayNetworking.send(new CastVotePayload(voteYes));
+            FriendlyByteBuf buf = PacketByteBufs.create();
+            buf.writeBoolean(voteYes);
+            ClientPlayNetworking.send(CAST_VOTE, buf);
         } catch (Exception e) {
             LOGGER.error("Error sending vote to server", e);
             client.player.displayClientMessage(
@@ -168,21 +173,28 @@ public class VoteKickClient implements ClientModInitializer {
     private void registerNetworkHandlers() {
         // When server starts a vote
         ClientPlayNetworking.registerGlobalReceiver(
-                ShowVotePanelPayload.TYPE,
-                (payload, context) -> {
-                    Minecraft client = context.client();
+                SHOW_VOTE_PANEL,
+                (client, handler, buf, responseSender) -> {
+                    String title = buf.readUtf();
+                    String subtitle = buf.readUtf();
+                    int time = buf.readInt();
+                    int yesVotes = buf.readInt();
+                    int noVotes = buf.readInt();
+                    int votesNeeded = buf.readInt();
+                    boolean isTarget = buf.readBoolean();
+
                     client.execute(() -> {
                         try {
-                            LOGGER.debug("Showing vote panel: target={}", payload.isTarget());
+                            LOGGER.debug("Showing vote panel: target={}", isTarget);
                             VoteKickHud.resetVoteState();
                             VoteKickHud.showVotePanel(
-                                    payload.title(),
-                                    payload.subtitle(),
-                                    payload.time(),
-                                    payload.yesVotes(),
-                                    payload.noVotes(),
-                                    payload.votesNeeded(),
-                                    payload.isTarget()
+                                    title,
+                                    subtitle,
+                                    time,
+                                    yesVotes,
+                                    noVotes,
+                                    votesNeeded,
+                                    isTarget
                             );
                         } catch (Exception e) {
                             LOGGER.error("Error showing vote panel", e);
@@ -193,15 +205,18 @@ public class VoteKickClient implements ClientModInitializer {
 
         // When vote count changes or time ticks down
         ClientPlayNetworking.registerGlobalReceiver(
-                UpdateVotePanelPayload.TYPE,
-                (payload, context) -> {
-                    Minecraft client = context.client();
+                UPDATE_VOTE_PANEL,
+                (client, handler, buf, responseSender) -> {
+                    int time = buf.readInt();
+                    int yesVotes = buf.readInt();
+                    int noVotes = buf.readInt();
+
                     client.execute(() -> {
                         try {
                             VoteKickHud.updateVotePanel(
-                                    payload.time(),
-                                    payload.yesVotes(),
-                                    payload.noVotes()
+                                    time,
+                                    yesVotes,
+                                    noVotes
                             );
                         } catch (Exception e) {
                             LOGGER.error("Error updating vote panel", e);
@@ -212,9 +227,8 @@ public class VoteKickClient implements ClientModInitializer {
 
         // When vote ends
         ClientPlayNetworking.registerGlobalReceiver(
-                HideVotePanelPayload.TYPE,
-                (payload, context) -> {
-                    Minecraft client = context.client();
+                HIDE_VOTE_PANEL,
+                (client, handler, buf, responseSender) -> {
                     client.execute(() -> {
                         try {
                             LOGGER.debug("Hiding vote panel");

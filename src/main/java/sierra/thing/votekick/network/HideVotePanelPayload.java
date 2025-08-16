@@ -1,6 +1,8 @@
 package sierra.thing.votekick.network;
 
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.fabricmc.fabric.api.networking.v1.FabricPacket;
+import net.fabricmc.fabric.api.networking.v1.PacketType;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import sierra.thing.votekick.VoteKickMod;
 
@@ -8,14 +10,24 @@ import sierra.thing.votekick.VoteKickMod;
  * Simple packet to tell the client to close the vote UI.
  * Sent when votes finish or are cancelled.
  */
-public record HideVotePanelPayload() implements CustomPacketPayload {
+public record HideVotePanelPayload() implements FabricPacket {
     // Unique identifier for this packet type - server uses this to know what we're sending
-    public static final Type<HideVotePanelPayload> TYPE = new Type<>(
-            ResourceLocation.parse(VoteKickMod.MOD_ID + ":hide_vote_panel")
+    public static final PacketType<HideVotePanelPayload> TYPE = PacketType.create(
+            new ResourceLocation(VoteKickMod.MOD_ID, "hide_vote_panel"),
+            buf -> new HideVotePanelPayload()
     );
 
+    public HideVotePanelPayload(FriendlyByteBuf buf) {
+        this();
+    }
+
     @Override
-    public Type<?> type() {
+    public void write(FriendlyByteBuf buf) {
+        // No actual data in this packet - it's just a signal
+    }
+
+    @Override
+    public PacketType<?> getType() {
         return TYPE;
     }
 

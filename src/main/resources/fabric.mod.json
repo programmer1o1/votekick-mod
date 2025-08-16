@@ -1,7 +1,7 @@
 {
 	"schemaVersion": 1,
 	"id": "votekick",
-	"version": "1.0.2",
+	"version": "1.0.3",
 	"name": "Vote Kick",
 	"description": "A simple mod to vote kick players from the server",
 	"authors": [
@@ -22,9 +22,9 @@
 		"votekick.mixin.json"
 	],
 	"depends": {
-		"fabricloader": ">=0.16.10",
-		"minecraft": "~1.21.4",
-		"java": ">=21",
+        "fabricloader": ">=0.14.21",
+        "minecraft": "~1.20.1",
+        "java": ">=17",
 		"fabric-api": "*"
 	},
 	"suggests": {

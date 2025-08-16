@@ -34,7 +34,7 @@ public class VoteKickMod implements ModInitializer {
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     // Channel ID for checking if clients have the mod - kinda hacky but works
-    public static final ResourceLocation MOD_PRESENCE_CHANNEL = ResourceLocation.fromNamespaceAndPath(MOD_ID, "presence");
+    public static final ResourceLocation MOD_PRESENCE_CHANNEL = new ResourceLocation(MOD_ID, "presence");
 
     private static VoteKickConfig config;
     // Stores active votes - should really only be one at a time but using a map for flexibility
@@ -124,17 +124,21 @@ public class VoteKickMod implements ModInitializer {
     }
 
     private void registerNetworkHandlers() {
+        // Define the ResourceLocation for the packet
+        ResourceLocation CAST_VOTE = new ResourceLocation(MOD_ID, "cast_vote");
+
         // This gets called when a player clicks yes/no in the vote UI
-        ServerPlayNetworking.registerGlobalReceiver(CastVotePayload.TYPE, (payload, context) -> {
-            context.player().getServer().execute(() -> {
-                ServerPlayer player = context.player();
+        ServerPlayNetworking.registerGlobalReceiver(CAST_VOTE, (server, player, handler, buf, responseSender) -> {
+            boolean voteYes = buf.readBoolean();
+
+            server.execute(() -> {
                 if (activeVotes.isEmpty()) {
                     player.sendSystemMessage(Component.literal("No vote in progress"));
                     return;
                 }
 
                 VoteSession session = activeVotes.values().iterator().next();
-                boolean success = session.castVote(player, payload.voteYes());
+                boolean success = session.castVote(player, voteYes);
 
                 if (!success) {
                     player.sendSystemMessage(Component.literal("You've already voted or aren't eligible to vote"));

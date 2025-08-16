@@ -22,7 +22,7 @@ public class VoteKickHud {
 
     // Texture for the panel background - not actually using this right now
     // Ended up just drawing rectangles because it was easier
-    private static final ResourceLocation VOTE_PANEL_TEXTURE = ResourceLocation.parse(VoteKickMod.MOD_ID + ":textures/gui/vote_panel.png");
+    private static final ResourceLocation VOTE_PANEL_TEXTURE = new ResourceLocation(VoteKickMod.MOD_ID, "textures/gui/vote_panel.png");
 
     // State tracking
     private static boolean showVotePanel = false;
@@ -46,12 +46,12 @@ public class VoteKickHud {
 
     public static void init() {
         // Hook into the render system
-        HudRenderCallback.EVENT.register((guiGraphics, tickDelta) -> {
+        HudRenderCallback.EVENT.register((matrixStack, tickDelta) -> {
             updateAnimation();
 
             // Only draw if needed
             if (showVotePanel || isAnimating) {
-                render(guiGraphics);
+                render(matrixStack);
             }
         });
     }

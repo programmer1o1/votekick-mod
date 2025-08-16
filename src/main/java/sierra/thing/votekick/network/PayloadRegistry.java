@@ -1,8 +1,8 @@
 package sierra.thing.votekick.network;
 
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.network.FriendlyByteBuf;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sierra.thing.votekick.VoteKickMod;
@@ -26,17 +26,8 @@ public class PayloadRegistry {
         LOGGER.debug("Registering network payload types");
 
         try {
-            // Grab registry refs - one for each direction
-            PayloadTypeRegistry<RegistryFriendlyByteBuf> clientToServer = PayloadTypeRegistry.playC2S();
-            PayloadTypeRegistry<RegistryFriendlyByteBuf> serverToClient = PayloadTypeRegistry.playS2C();
-
-            // C2S - things clients send to server
-            registerCastVotePayload(clientToServer);
-
-            // S2C - things server broadcasts to clients
-            registerShowVotePanelPayload(serverToClient);
-            registerUpdateVotePanelPayload(serverToClient);
-            registerHideVotePanelPayload(serverToClient);
+            // No explicit registration needed for Fabric API packets in 1.20.1
+            // The TYPE fields in each payload class take care of registration
 
             LOGGER.debug("Successfully registered all network payloads");
         } catch (Exception e) {
@@ -45,79 +36,10 @@ public class PayloadRegistry {
         }
     }
 
-    private static void registerCastVotePayload(PayloadTypeRegistry<RegistryFriendlyByteBuf> registry) {
-        registry.register(
-                CastVotePayload.TYPE,
-                StreamCodec.of(
-                        (buf, payload) -> buf.writeBoolean(payload.voteYes()),
-                        buf -> new CastVotePayload(buf.readBoolean())
-                )
-        );
-        LOGGER.trace("Registered CastVotePayload");
-    }
-
-    private static void registerShowVotePanelPayload(PayloadTypeRegistry<RegistryFriendlyByteBuf> registry) {
-        registry.register(
-                ShowVotePanelPayload.TYPE,
-                StreamCodec.of(
-                        (buf, payload) -> {
-                            // Write UI text with sanity checks
-                            writeString(buf, payload.title());
-                            writeString(buf, payload.subtitle());
-                            buf.writeInt(payload.time());
-                            buf.writeInt(payload.yesVotes());
-                            buf.writeInt(payload.noVotes());
-                            buf.writeInt(payload.votesNeeded());
-                            buf.writeBoolean(payload.isTarget());
-                        },
-                        buf -> new ShowVotePanelPayload(
-                                readString(buf),
-                                readString(buf),
-                                buf.readInt(),
-                                buf.readInt(),
-                                buf.readInt(),
-                                buf.readInt(),
-                                buf.readBoolean()
-                        )
-                )
-        );
-        LOGGER.trace("Registered ShowVotePanelPayload");
-    }
-
-    private static void registerUpdateVotePanelPayload(PayloadTypeRegistry<RegistryFriendlyByteBuf> registry) {
-        registry.register(
-                UpdateVotePanelPayload.TYPE,
-                StreamCodec.of(
-                        (buf, payload) -> {
-                            buf.writeInt(payload.time());
-                            buf.writeInt(payload.yesVotes());
-                            buf.writeInt(payload.noVotes());
-                        },
-                        buf -> new UpdateVotePanelPayload(
-                                buf.readInt(),
-                                buf.readInt(),
-                                buf.readInt()
-                        )
-                )
-        );
-        LOGGER.trace("Registered UpdateVotePanelPayload");
-    }
-
-    private static void registerHideVotePanelPayload(PayloadTypeRegistry<RegistryFriendlyByteBuf> registry) {
-        registry.register(
-                HideVotePanelPayload.TYPE,
-                StreamCodec.of(
-                        (buf, payload) -> {}, // Empty payload, just a signal
-                        buf -> new HideVotePanelPayload()
-                )
-        );
-        LOGGER.trace("Registered HideVotePanelPayload");
-    }
-
     /**
      * Safely write string to buffer - had a nasty crash once with unchecked strings
      */
-    private static void writeString(RegistryFriendlyByteBuf buf, String str) {
+    public static void writeString(FriendlyByteBuf buf, String str) {
         if (str == null) {
             buf.writeUtf("");
         } else if (str.length() > MAX_STRING_LENGTH) {
@@ -133,7 +55,7 @@ public class PayloadRegistry {
      * Not sure this is necessary since server should be sending valid data
      * but better safe than sorry
      */
-    private static String readString(RegistryFriendlyByteBuf buf) {
+    public static String readString(FriendlyByteBuf buf) {
         String str = buf.readUtf();
         if (str.length() > MAX_STRING_LENGTH) {
             // Should never happen unless someone's messing with the packets

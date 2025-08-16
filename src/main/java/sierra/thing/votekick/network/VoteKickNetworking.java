@@ -1,6 +1,9 @@
 package sierra.thing.votekick.network;
 
+import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +19,11 @@ import java.util.UUID;
  */
 public class VoteKickNetworking {
     private static final Logger LOGGER = LoggerFactory.getLogger(VoteKickMod.MOD_ID);
+
+    // Channel identifiers
+    private static final ResourceLocation SHOW_VOTE_PANEL = new ResourceLocation(VoteKickMod.MOD_ID, "show_vote_panel");
+    private static final ResourceLocation UPDATE_VOTE_PANEL = new ResourceLocation(VoteKickMod.MOD_ID, "update_vote_panel");
+    private static final ResourceLocation HIDE_VOTE_PANEL = new ResourceLocation(VoteKickMod.MOD_ID, "hide_vote_panel");
 
     /**
      * Shows the vote UI on a client.
@@ -34,10 +42,16 @@ public class VoteKickNetworking {
         if (player == null) return;
 
         try {
-            ShowVotePanelPayload payload = new ShowVotePanelPayload(
-                    title, subtitle, time, yes, no, needed, isTarget
-            );
-            ServerPlayNetworking.send(player, payload);
+            FriendlyByteBuf buf = PacketByteBufs.create();
+            PayloadRegistry.writeString(buf, title);
+            PayloadRegistry.writeString(buf, subtitle);
+            buf.writeInt(time);
+            buf.writeInt(yes);
+            buf.writeInt(no);
+            buf.writeInt(needed);
+            buf.writeBoolean(isTarget);
+
+            ServerPlayNetworking.send(player, SHOW_VOTE_PANEL, buf);
             LOGGER.debug("Sent ShowVotePanel to {}, isTarget={}", player.getScoreboardName(), isTarget);
         } catch (Exception e) {
             LOGGER.error("Error sending ShowVotePanel to {}", player.getScoreboardName(), e);
@@ -52,8 +66,12 @@ public class VoteKickNetworking {
         if (player == null) return;
 
         try {
-            UpdateVotePanelPayload payload = new UpdateVotePanelPayload(time, yes, no);
-            ServerPlayNetworking.send(player, payload);
+            FriendlyByteBuf buf = PacketByteBufs.create();
+            buf.writeInt(time);
+            buf.writeInt(yes);
+            buf.writeInt(no);
+
+            ServerPlayNetworking.send(player, UPDATE_VOTE_PANEL, buf);
             LOGGER.trace("Sent UpdateVotePanel to {}: time={}, yes={}, no={}",
                     player.getScoreboardName(), time, yes, no);
         } catch (Exception e) {
@@ -69,8 +87,8 @@ public class VoteKickNetworking {
         if (player == null) return;
 
         try {
-            HideVotePanelPayload payload = new HideVotePanelPayload();
-            ServerPlayNetworking.send(player, payload);
+            FriendlyByteBuf buf = PacketByteBufs.create();
+            ServerPlayNetworking.send(player, HIDE_VOTE_PANEL, buf);
             LOGGER.debug("Sent HideVotePanel to {}", player.getScoreboardName());
         } catch (Exception e) {
             LOGGER.error("Error sending HideVotePanel to {}", player.getScoreboardName(), e);
@@ -111,9 +129,6 @@ public class VoteKickNetworking {
         if (players == null) return;
 
         try {
-            // Create payload once instead of per-player
-            UpdateVotePanelPayload payload = new UpdateVotePanelPayload(time, yes, no);
-
             // Track valid players for better logging
             Collection<ServerPlayer> validPlayers = new ArrayList<>();
             for (ServerPlayer player : players) {
@@ -122,9 +137,13 @@ public class VoteKickNetworking {
                 }
             }
 
-            // Send to everyone
+            // Send to everyone - create new buffer for each player
             for (ServerPlayer player : validPlayers) {
-                ServerPlayNetworking.send(player, payload);
+                FriendlyByteBuf buf = PacketByteBufs.create();
+                buf.writeInt(time);
+                buf.writeInt(yes);
+                buf.writeInt(no);
+                ServerPlayNetworking.send(player, UPDATE_VOTE_PANEL, buf);
             }
 
             LOGGER.trace("Broadcast UpdateVotePanel to {} players: time={}, yes={}, no={}",
@@ -142,13 +161,12 @@ public class VoteKickNetworking {
         if (players == null) return;
 
         try {
-            // Reuse the same packet object for all players
-            HideVotePanelPayload payload = new HideVotePanelPayload();
-
             int count = 0;
             for (ServerPlayer player : players) {
                 if (player != null) {
-                    ServerPlayNetworking.send(player, payload);
+                    // Create a new buffer for each player
+                    FriendlyByteBuf buf = PacketByteBufs.create();
+                    ServerPlayNetworking.send(player, HIDE_VOTE_PANEL, buf);
                     count++;
                 }
             }
