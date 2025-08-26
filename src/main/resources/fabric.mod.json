@@ -1,7 +1,7 @@
 {
 	"schemaVersion": 1,
 	"id": "votekick",
-	"version": "1.0.2",
+	"version": "1.0.4",
 	"name": "Vote Kick",
 	"description": "A simple mod to vote kick players from the server",
 	"authors": [
