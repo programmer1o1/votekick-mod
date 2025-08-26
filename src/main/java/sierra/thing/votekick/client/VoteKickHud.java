@@ -2,79 +2,100 @@ package sierra.thing.votekick.client;
 
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 import sierra.thing.votekick.VoteKickMod;
+
+import java.util.List;
 
 /**
  * Handles the UI for vote kicks.
  * Draws a panel in the top-right corner of the screen.
- * Tried to make it look like TF2's vote system.
+ * Tried to make it look like TF2's vote system. But just abandoned that entirely lol
  */
 public class VoteKickHud {
 
-    // For cleanup when panel closes
     @FunctionalInterface
     public interface HideCallback {
         void onHide();
     }
 
-    // Texture for the panel background - not actually using this right now
-    // Ended up just drawing rectangles because it was easier
-    private static final ResourceLocation VOTE_PANEL_TEXTURE = new ResourceLocation(VoteKickMod.MOD_ID, "textures/gui/vote_panel.png");
+    // Colors
+    private static final int COLOR_BACKGROUND = 0xE0000000;
+    private static final int COLOR_HEADER_BG = 0xFF1a1a1a;
+    private static final int COLOR_ACCENT = 0xFF3498db;
+    private static final int COLOR_YES = 0xFF27ae60;
+    private static final int COLOR_NO = 0xFFe74c3c;
+    private static final int COLOR_WARNING = 0xFFf39c12;
+    private static final int COLOR_TEXT = 0xFFFFFFFF;
+    private static final int COLOR_TEXT_DIM = 0xFFAAAAAA;
+    private static final int COLOR_SHADOW = 0x40000000;
 
-    // State tracking
+    // Dimensions
+    private static final int PANEL_WIDTH = 250;
+    private static final int MIN_PANEL_HEIGHT = 120;
+    private static final int PADDING = 12;
+    private static final int LINE_HEIGHT = 12;
+    private static final int MARGIN = 10;
+
+    // Animation
+    private static final float ANIMATION_SPEED = 0.12f;
+    private static final float EASE_FACTOR = 0.5f;
+    private static float animationProgress = 0f;
+    private static boolean isAnimating = false;
+    private static boolean isShowing = false;
+    private static float pulseAnimation = 0f;
+
+    // Vote state
     private static boolean showVotePanel = false;
     private static boolean isVoteTarget = false;
     private static boolean hasVoted = false;
     private static String voteTitle = "";
-    private static String voteSubtitle = "";
+    private static String voteReason = "";
     private static int timeRemaining = 0;
     private static int yesVotes = 0;
     private static int noVotes = 0;
     private static int votesNeeded = 0;
+    private static int lastTimeRemaining = -1;
 
-    // Animation stuff - makes the panel slide in/out
-    private static float animationProgress = 0f;
-    private static boolean isAnimating = false;
-    private static boolean isShowing = false;
-    private static final float ANIMATION_SPEED = 0.075f; // adjust if too fast/slow
-
-    // Optional callback for when panel is hidden
     private static HideCallback onHideListener = null;
 
-    public static void init() {
-        // Hook into the render system
-        HudRenderCallback.EVENT.register((matrixStack, tickDelta) -> {
-            updateAnimation();
+    // Cached wrapped text
+    private static List<FormattedCharSequence> wrappedReasonText = null;
+    private static int cachedPanelHeight = MIN_PANEL_HEIGHT;
 
-            // Only draw if needed
+    public static void init() {
+        HudRenderCallback.EVENT.register((matrixStack, tickDelta) -> {
+            updateAnimation(tickDelta);
+
             if (showVotePanel || isAnimating) {
-                render(matrixStack);
+                render(matrixStack, tickDelta);
             }
         });
     }
 
-    private static void updateAnimation() {
+    private static void updateAnimation(float tickDelta) {
+        // Pulse animation for time warning
+        pulseAnimation += tickDelta * 0.1f;
+
         if (!isAnimating) return;
 
-        if (isShowing) {
-            // Slide in from top
-            animationProgress += ANIMATION_SPEED;
-            if (animationProgress >= 1.0f) {
-                animationProgress = 1.0f;
-                isAnimating = false;
-            }
-        } else {
-            // Slide out to top
-            animationProgress -= ANIMATION_SPEED;
-            if (animationProgress <= 0f) {
-                animationProgress = 0f;
-                isAnimating = false;
-                showVotePanel = false;
+        float targetProgress = isShowing ? 1.0f : 0.0f;
+        float diff = targetProgress - animationProgress;
 
-                // Let any listeners know we're done
+        // Eased animation
+        animationProgress += diff * ANIMATION_SPEED;
+
+        if (Math.abs(diff) < 0.01f) {
+            animationProgress = targetProgress;
+            isAnimating = false;
+
+            if (!isShowing) {
+                showVotePanel = false;
                 if (onHideListener != null) {
                     onHideListener.onHide();
                 }
@@ -82,185 +103,327 @@ public class VoteKickHud {
         }
     }
 
-    private static void render(GuiGraphics guiGraphics) {
+    private static void render(GuiGraphics guiGraphics, float tickDelta) {
         Minecraft mc = Minecraft.getInstance();
-        int width = mc.getWindow().getGuiScaledWidth();
-        int height = mc.getWindow().getGuiScaledHeight();
+        Font font = mc.font;
 
-        // Fixed size panel - might want to make this scale better
-        int panelWidth = 210;
-        int panelHeight = 100;
-        int x = width - panelWidth - 10; // 10px padding from right
-        int baseY = 10; // 10px from top
+        int screenWidth = mc.getWindow().getGuiScaledWidth();
+        int screenHeight = mc.getWindow().getGuiScaledHeight();
 
-        // Calculate Y position based on animation
-        int animatedY = baseY;
-        if (isAnimating) {
-            // Slide in from above screen
-            animatedY = baseY - (int)((1.0f - animationProgress) * (panelHeight + 20));
+        // Calculate dynamic panel height based on wrapped text
+        int panelHeight = calculatePanelHeight(font);
+
+        // Position with slide animation
+        int x = screenWidth - PANEL_WIDTH - MARGIN;
+        float easedProgress = easeInOutCubic(animationProgress);
+        int y = MARGIN - (int)((1.0f - easedProgress) * (panelHeight + 20));
+
+        // Add subtle bounce at the end
+        if (animationProgress > 0.8f && isShowing) {
+            float bounce = (float)Math.sin((animationProgress - 0.8f) * 15.0f) * 2.0f;
+            y += (int)(bounce * (1.0f - animationProgress));
         }
 
-        // Draw the actual panel
-        renderVotePanel(guiGraphics, x, animatedY, panelWidth, panelHeight);
+        // Shadow
+        guiGraphics.fill(x + 2, y + 2, x + PANEL_WIDTH + 2, y + panelHeight + 2, COLOR_SHADOW);
+
+        // Main background
+        guiGraphics.fill(x, y, x + PANEL_WIDTH, y + panelHeight, COLOR_BACKGROUND);
+
+        // Header background
+        guiGraphics.fill(x, y, x + PANEL_WIDTH, y + 30, COLOR_HEADER_BG);
+
+        // Accent stripe
+        guiGraphics.fill(x, y, x + 3, y + panelHeight, COLOR_ACCENT);
+
+        renderContent(guiGraphics, font, x, y, panelHeight);
     }
 
-    private static void renderVotePanel(GuiGraphics guiGraphics, int x, int y, int width, int height) {
-        Minecraft mc = Minecraft.getInstance();
+    private static void renderContent(GuiGraphics guiGraphics, Font font, int x, int y, int panelHeight) {
+        int currentY = y + PADDING;
 
-        // Semi-transparent background
-        guiGraphics.fill(x, y, x + width, y + height, 0xC0000000);
+        // Title with icon indicator
+        String icon = isVoteTarget ? "⚠ " : "🗳 ";
+        Component titleComponent = Component.literal(icon + voteTitle);
+        guiGraphics.drawString(font, titleComponent, x + PADDING, currentY, COLOR_TEXT);
+        currentY += LINE_HEIGHT + 8;
 
-        // White border - makes it look nicer
-        drawBorder(guiGraphics, x, y, x + width, y + height, 0xFFFFFFFF);
+        // Separator line
+        guiGraphics.fill(x + PADDING, currentY, x + PANEL_WIDTH - PADDING, currentY + 1, 0x30FFFFFF);
+        currentY += 6;
 
-        // Title (player being voted on)
-        int textColor = 0xFFFFFF;
-        guiGraphics.drawString(mc.font, voteTitle, x + 10, y + 10, textColor);
+        // Wrapped reason text
+        if (wrappedReasonText != null && !wrappedReasonText.isEmpty()) {
+            // Reason label
+            guiGraphics.drawString(font, "REASON:", x + PADDING, currentY, COLOR_WARNING);
+            currentY += LINE_HEIGHT + 2;
 
-        // Reason with highlighted box
-        int reasonY = y + 25;
-        if (voteSubtitle != null && voteSubtitle.startsWith("Reason:")) {
-            // Make the reason stand out more
-            guiGraphics.fill(x + 5, reasonY - 2, x + width - 5, reasonY + 12, 0x40FFAA00);
-            // Gold text for reason
-            guiGraphics.drawString(mc.font, voteSubtitle, x + 10, reasonY, 0xFFAA00);
-        } else {
-            // Normal text for other stuff
-            guiGraphics.drawString(mc.font, voteSubtitle, x + 10, reasonY, 0xAAAAAA);
-        }
-
-        // Timer
-        String timeText = "Time left: " + timeRemaining + "s";
-        guiGraphics.drawString(mc.font, timeText, x + 10, y + 45, textColor);
-
-        // Vote counts - green for yes, red for no
-        guiGraphics.drawString(mc.font, "YES: " + yesVotes, x + 30, y + 65, 0x55FF55);
-        guiGraphics.drawString(mc.font, "NO: " + noVotes, x + width - 70, y + 65, 0xFF5555);
-
-        // Progress bar showing yes vs no votes
-        int barWidth = width - 20;
-        int totalVotes = yesVotes + noVotes;
-        int filledWidth = totalVotes > 0 ? Mth.clamp((yesVotes * barWidth) / totalVotes, 0, barWidth) : 0;
-
-        // Bar background
-        guiGraphics.fill(x + 10, y + 80, x + 10 + barWidth, y + 88, 0x80000000);
-
-        // Green filled portion (yes votes)
-        if (filledWidth > 0) {
-            guiGraphics.fill(x + 10, y + 80, x + 10 + filledWidth, y + 88, 0x8055FF55);
-        }
-
-        // White marker showing threshold needed to pass
-        // This math is a bit wonky but it works - shows roughly where the pass threshold is
-        int thresholdX = x + 10 + (int)(barWidth * ((float)votesNeeded / Math.max(totalVotes + 1, votesNeeded * 2)));
-        guiGraphics.fill(thresholdX - 1, y + 78, thresholdX + 1, y + 90, 0xFFFFFFFF);
-
-        // Different message based on state
-        if (!isVoteTarget) {
-            if (hasVoted) {
-                guiGraphics.drawString(mc.font, "Vote cast!", x + 10, y + height - 15, 0xFFAA00);
-            } else {
-                // Prompt to vote - used to be J/K but changed to F1/F2
-                guiGraphics.drawString(mc.font, "Press F1 - Yes, F2 - No", x + 10, y + height - 15, 0xCCCCCC);
+            // Reason content with background
+            int reasonStartY = currentY;
+            for (FormattedCharSequence line : wrappedReasonText) {
+                guiGraphics.drawString(font, line, x + PADDING + 4, currentY, COLOR_TEXT_DIM);
+                currentY += LINE_HEIGHT;
             }
-        } else {
-            // Warning if you're the one being voted on
-            guiGraphics.drawString(mc.font, "You are being voted on", x + 10, y + height - 15, 0xFF5555);
+
+            // Subtle background for reason
+            guiGraphics.fill(x + PADDING, reasonStartY - 2,
+                    x + PANEL_WIDTH - PADDING, currentY, 0x20FFFFFF);
+            currentY += 8;
+        }
+
+        // Vote progress section
+        renderVoteProgress(guiGraphics, font, x, currentY);
+        currentY += 35;
+
+        // Timer with warning pulse
+        renderTimer(guiGraphics, font, x, currentY);
+        currentY += LINE_HEIGHT + 8;
+
+        // Action prompt
+        renderActionPrompt(guiGraphics, font, x, y + panelHeight - 25);
+    }
+
+    private static void renderVoteProgress(GuiGraphics guiGraphics, Font font, int x, int y) {
+        int barX = x + PADDING;
+        int barY = y;
+        int barWidth = PANEL_WIDTH - (PADDING * 2);
+        int barHeight = 20;
+
+        // Vote counts
+        String yesText = String.valueOf(yesVotes);
+        String noText = String.valueOf(noVotes);
+
+        guiGraphics.drawString(font, Component.literal("✓ " + yesText).withStyle(s -> s.withColor(COLOR_YES)),
+                barX, barY - LINE_HEIGHT, COLOR_YES);
+        guiGraphics.drawString(font, Component.literal("✗ " + noText).withStyle(s -> s.withColor(COLOR_NO)),
+                barX + barWidth - font.width("✗ " + noText), barY - LINE_HEIGHT, COLOR_NO);
+
+        // Progress bar background
+        guiGraphics.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF2c2c2c);
+
+        // Calculate fill
+        int totalVotes = yesVotes + noVotes;
+        if (totalVotes > 0) {
+            float yesRatio = (float)yesVotes / totalVotes;
+            int yesWidth = (int)(barWidth * yesRatio);
+
+            // Yes votes (green)
+            if (yesWidth > 0) {
+                drawGradientRect(guiGraphics, barX, barY, barX + yesWidth, barY + barHeight,
+                        COLOR_YES, darken(COLOR_YES, 0.7f));
+            }
+
+            // No votes (red)
+            if (yesWidth < barWidth) {
+                drawGradientRect(guiGraphics, barX + yesWidth, barY, barX + barWidth, barY + barHeight,
+                        COLOR_NO, darken(COLOR_NO, 0.7f));
+            }
+        }
+
+        // Threshold marker
+        if (votesNeeded > 0) {
+            float threshold = (float)votesNeeded / Math.max(totalVotes + 2, votesNeeded + 1);
+            int markerX = barX + (int)(barWidth * threshold);
+
+            // White dashed line
+            for (int i = 0; i < barHeight; i += 3) {
+                guiGraphics.fill(markerX - 1, barY + i, markerX + 1, barY + Math.min(i + 2, barHeight), 0xFFFFFFFF);
+            }
+
+            // Threshold label
+            String thresholdText = votesNeeded + " needed";
+            int textX = Math.min(markerX - font.width(thresholdText) / 2, barX + barWidth - font.width(thresholdText));
+            guiGraphics.drawString(font, thresholdText, Math.max(barX, textX), barY + barHeight + 2, COLOR_TEXT_DIM);
         }
     }
 
-    // Quick helper to draw borders - Minecraft doesn't have this built-in
-    private static void drawBorder(GuiGraphics guiGraphics, int x1, int y1, int x2, int y2, int color) {
-        // Draw 1px lines on all sides
-        guiGraphics.fill(x1, y1, x2, y1 + 1, color);      // Top
-        guiGraphics.fill(x1, y2 - 1, x2, y2, color);      // Bottom
-        guiGraphics.fill(x1, y1, x1 + 1, y2, color);      // Left
-        guiGraphics.fill(x2 - 1, y1, x2, y2, color);      // Right
+    private static void renderTimer(GuiGraphics guiGraphics, Font font, int x, int y) {
+        boolean isUrgent = timeRemaining <= 5;
+
+        // Pulse effect for urgent timer
+        int timerColor = COLOR_TEXT;
+        if (isUrgent) {
+            float pulse = (float)Math.sin(pulseAnimation * 5) * 0.5f + 0.5f;
+            timerColor = interpolateColor(COLOR_WARNING, COLOR_NO, pulse);
+        }
+
+        String timeIcon = isUrgent ? "⏰ " : "⏱ ";
+        Component timerText = Component.literal(timeIcon + "Time remaining: " + timeRemaining + "s");
+
+        if (isUrgent) {
+            // Background flash for urgency
+            float pulse = (float)Math.sin(pulseAnimation * 5) * 0.3f + 0.3f;
+            int bgColor = (int)(pulse * 255) << 24 | 0xFF0000;
+            guiGraphics.fill(x + PADDING - 2, y - 2, x + PANEL_WIDTH - PADDING + 2, y + LINE_HEIGHT + 2, bgColor);
+        }
+
+        guiGraphics.drawString(font, timerText, x + PADDING, y, timerColor);
     }
 
-    // Called when a vote starts
+    private static void renderActionPrompt(GuiGraphics guiGraphics, Font font, int x, int y) {
+        Component prompt;
+        int color;
+
+        if (isVoteTarget) {
+            prompt = Component.literal("⚠ You are the vote target!");
+            color = COLOR_NO;
+
+            // Pulsing background for warning
+            float pulse = (float)Math.sin(pulseAnimation * 3) * 0.3f + 0.3f;
+            int bgColor = (int)(pulse * 255) << 24 | 0xFF0000;
+            guiGraphics.fill(x + PADDING - 4, y - 2, x + PANEL_WIDTH - PADDING + 4, y + LINE_HEIGHT + 2, bgColor);
+        } else if (hasVoted) {
+            prompt = Component.literal("✓ Vote submitted");
+            color = COLOR_YES;
+        } else {
+            prompt = Component.literal("Press [F1] Yes • [F2] No");
+            color = COLOR_TEXT;
+
+            // Subtle highlight
+            guiGraphics.fill(x + PADDING - 2, y - 2, x + PANEL_WIDTH - PADDING + 2, y + LINE_HEIGHT + 2, 0x20FFFFFF);
+        }
+
+        int textX = x + (PANEL_WIDTH / 2) - (font.width(prompt) / 2);
+        guiGraphics.drawString(font, prompt, textX, y, color);
+    }
+
+    private static int calculatePanelHeight(Font font) {
+        if (wrappedReasonText == null) {
+            return MIN_PANEL_HEIGHT;
+        }
+
+        int baseHeight = 120; // Base UI elements
+        int reasonHeight = wrappedReasonText.size() * LINE_HEIGHT;
+        return baseHeight + reasonHeight + 20; // Extra padding
+    }
+
+    private static void wrapReasonText(Font font) {
+        if (voteReason == null || voteReason.isEmpty()) {
+            wrappedReasonText = null;
+            return;
+        }
+
+        String cleanReason = voteReason.replace("Reason: ", "").trim();
+        int maxWidth = PANEL_WIDTH - (PADDING * 2) - 8;
+
+        wrappedReasonText = font.split(Component.literal(cleanReason), maxWidth);
+        cachedPanelHeight = calculatePanelHeight(font);
+    }
+
+    // Utility methods
+    private static float easeInOutCubic(float t) {
+        return t < 0.5f ? 4 * t * t * t : 1 - (float)Math.pow(-2 * t + 2, 3) / 2;
+    }
+
+    private static void drawGradientRect(GuiGraphics graphics, int x1, int y1, int x2, int y2, int colorTop, int colorBottom) {
+        graphics.fillGradient(x1, y1, x2, y2, colorTop, colorBottom);
+    }
+
+    private static int darken(int color, float factor) {
+        int a = (color >> 24) & 0xFF;
+        int r = (int)(((color >> 16) & 0xFF) * factor);
+        int g = (int)(((color >> 8) & 0xFF) * factor);
+        int b = (int)((color & 0xFF) * factor);
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    private static int interpolateColor(int color1, int color2, float ratio) {
+        ratio = Mth.clamp(ratio, 0, 1);
+        int a1 = (color1 >> 24) & 0xFF;
+        int r1 = (color1 >> 16) & 0xFF;
+        int g1 = (color1 >> 8) & 0xFF;
+        int b1 = color1 & 0xFF;
+
+        int a2 = (color2 >> 24) & 0xFF;
+        int r2 = (color2 >> 16) & 0xFF;
+        int g2 = (color2 >> 8) & 0xFF;
+        int b2 = color2 & 0xFF;
+
+        int a = (int)(a1 + (a2 - a1) * ratio);
+        int r = (int)(r1 + (r2 - r1) * ratio);
+        int g = (int)(g1 + (g2 - g1) * ratio);
+        int b = (int)(b1 + (b2 - b1) * ratio);
+
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    // Public API methods
     public static void showVotePanel(String title, String subtitle, int time, int yes, int no, int needed, boolean isTarget) {
         voteTitle = title;
-        voteSubtitle = subtitle;
+        voteReason = subtitle;
         timeRemaining = time;
+        lastTimeRemaining = time;
         yesVotes = yes;
         noVotes = no;
         votesNeeded = needed;
         isVoteTarget = isTarget;
         hasVoted = false;
+
+        // Wrap text for display
+        Minecraft mc = Minecraft.getInstance();
+        wrapReasonText(mc.font);
+
         VoteKickClient.resetVoteState();
 
-        // Start animation
         animationProgress = 0f;
         isShowing = true;
         isAnimating = true;
         showVotePanel = true;
     }
 
-    // Updates vote counts and timer
     public static void updateVotePanel(int time, int yes, int no) {
+        boolean timeChanged = (time != lastTimeRemaining);
+        lastTimeRemaining = timeRemaining;
+
         timeRemaining = time;
         yesVotes = yes;
         noVotes = no;
+
+        // Reset pulse on time change for emphasis
+        if (timeChanged && time <= 5) {
+            pulseAnimation = 0;
+        }
     }
 
-    /**
-     * Clean up UI when player disconnects
-     * Had a bug where panel would stay visible in main menu - not good!
-     */
     public static void onClientDisconnect() {
-        // Force immediate hide
         showVotePanel = false;
         isAnimating = false;
         animationProgress = 0f;
         isShowing = false;
-
         hasVoted = false;
         isVoteTarget = false;
+        wrappedReasonText = null;
 
-        // Reset vote state
         VoteKickClient.resetVoteState();
 
-        // Call listener if needed
         if (onHideListener != null) {
             onHideListener.onHide();
         }
     }
 
-    // Start slide-out animation when vote ends
     public static void hideVotePanel() {
         isShowing = false;
         isAnimating = true;
     }
 
-    // Called when player casts a vote
     public static void markPlayerVoted() {
         hasVoted = true;
     }
 
-    // Reset everything
     public static void resetVoteState() {
         hasVoted = false;
         VoteKickClient.resetVoteState();
     }
 
-    /**
-     * Check if vote UI is currently visible
-     */
     public static boolean isVotePanelShowing() {
         return showVotePanel;
     }
 
-    /**
-     * Register callback for when panel is hidden
-     * Used for cleanup
-     */
     public static void setOnHideListener(HideCallback listener) {
         onHideListener = listener;
     }
 
-    /**
-     * Has player already voted in this session?
-     */
-    public static boolean hasPlayerVoted() { return hasVoted; }
+    public static boolean hasPlayerVoted() {
+        return hasVoted;
+    }
 }
