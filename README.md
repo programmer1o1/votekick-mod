@@ -1,69 +1,83 @@
 # VoteKick
 
-Do you want players agreement? Bring out Democracy!
+A democratic voting system that allows players to collectively remove disruptive players from the server through a clean, fair voting process.
 
-## Overview
+## Features
 
-VoteKick allows players to democratically remove disruptive players from the server through a simple voting system. When a vote is initiated, all players receive a clean, unobtrusive UI to cast their votes, with results tallied in real-time.
+- **Simple Voting Interface** - Unobtrusive UI with F1/F2 keybinds or chat commands
+- **Anti-Abuse Protection** - Prevents harassment and vote spam with cooldowns and immunity periods
+- **Configurable Client UI** - Adjustable scaling, positioning, and visual options
+- **Real-time Vote Tracking** - Live progress bars and vote counts
+- **Flexible Configuration** - Extensive server-side settings for fine-tuning
 
-## How to Use
+## Usage
 
 ### Starting a Vote
 ```
-/votekick <player> <reason>  (or /vk <player> <reason> for short)
+/votekick <player> <reason>
+/vk <player> <reason>
 ```
 
-### Casting Votes
-- Press **F1** to vote YES (kick the player)
-- Press **F2** to vote NO (keep the player)
-- Or use commands: `/vote yes` or `/vote no`
+### Voting
+- Press **F1** for YES (kick player)
+- Press **F2** for NO (keep player)
+- Commands: `/vote yes` or `/vote no`
 
-### Checking Status
+### Status
 ```
-/vote status  (shows current vote details)
+/vote status
 ```
-
-The vote will automatically pass or fail based on your server's configuration.
 
 ## Configuration
 
-In `config/votekick.properties`:
+### Server Configuration
+Located in `config/votekick.properties`:
 
 ```properties
-# Duration of votes in seconds
+# Basic Settings
 vote_duration_seconds=30
-
-# Cooldown between votes in seconds
+vote_pass_percentage=0.6
+minimum_players=2
 cooldown_seconds=120
 
-# Percentage of YES votes required (0.0-1.0)
-vote_pass_percentage=0.6
+# Protection System
+new_player_protection_enabled=true
+post_kick_protection_enabled=true
+harassment_detection_enabled=true
+vote_threshold_modifiers_enabled=true
 
-# Minimum players required for voting
-minimum_players=2
-
-# Allow players to vote to kick themselves
-allow_self_voting=false
-
-# Whether target players are notified of vote start
-notify_target_on_vote_start=true
-
-# Require a reason when starting a vote kick
+# Customization
 require_kick_reason=true
+allow_self_voting=false
 ```
+
+### Client Configuration
+Customize your voting experience through:
+- **ModMenu Integration** - Graphical configuration screen
+- **Properties File** - `config/votekick-client.properties` for manual editing
+
+Options include UI scaling, panel positioning, sound controls, and animation settings.
+
+## Anti-Abuse Features
+
+- **New Player Protection** - Grace period for first-time joiners
+- **Post-Kick Immunity** - Temporary protection after being kicked
+- **Harassment Detection** - Automatic protection for repeatedly targeted players
+- **Vote Cooldowns** - Prevents spam voting and target harassment
+- **Threshold Modifiers** - Requires more votes to kick frequently kicked players
 
 ## Requirements
 
-- Fabric API
-- Required on both server and client
+- **Fabric API** (required)
+- **ModMenu** (optional, for GUI configuration)
+- Must be installed on both client and server
 
 ## Permissions
 
-- Players cannot vote to kick server operators
-- Players with permission level 2+ cannot be vote-kicked
+- Server operators and players with permission level 2+ cannot be vote-kicked
+- All other players can participate in voting (unless protected)
 
-## License
+## Compatibility
 
-This mod is available under the MIT License.
-
----
+- Minecraft 1.20.1
+- Fabric Loader 0.14.0+
