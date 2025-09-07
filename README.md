@@ -79,5 +79,5 @@ Options include UI scaling, panel positioning, sound controls, and animation set
 
 ## Compatibility
 
-- Minecraft 1.20.1
-- Fabric Loader 0.14.0+
+- Minecraft 1.21.4
+- Fabric Loader 0.16.10+
