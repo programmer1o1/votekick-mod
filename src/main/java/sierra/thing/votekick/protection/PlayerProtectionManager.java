@@ -17,22 +17,11 @@ import java.lang.reflect.Type;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * manages player protection to prevent abuse
- * like when someone gets kicked 6 times in a row... that's just harassment
- */
 public class PlayerProtectionManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(VoteKickMod.MOD_ID);
 
-    // protection data
     private final Map<UUID, PlayerProtectionData> protectionData = new ConcurrentHashMap<>();
     private final Set<UUID> knownPlayers = ConcurrentHashMap.newKeySet();
-
-    // constants for protection periods
-    private static final long NEW_PLAYER_PROTECTION_MS = 300_000; // 5 minutes for new players
-    private static final long KICK_PROTECTION_MS = 600_000; // 10 minutes after being kicked
-    private static final long REPEATED_KICK_PROTECTION_MS = 1800_000; // 30 minutes if kicked multiple times
-    private static final int KICKS_FOR_EXTENDED_PROTECTION = 3; // after 3 kicks, longer protection
 
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
     private final File dataFile;
@@ -42,22 +31,23 @@ public class PlayerProtectionManager {
         this.dataFile = new File(configDir, "votekick_protection.json");
     }
 
-    /**
-     * check if player is currently protected from votes
-     */
     public boolean isProtected(UUID playerUUID) {
+        if (!anyProtectionEnabled()) {
+            return false;
+        }
+
         PlayerProtectionData data = protectionData.get(playerUUID);
         if (data == null) return false;
 
-        // check all protection types
         long now = System.currentTimeMillis();
         return data.protectionUntil > now;
     }
 
-    /**
-     * get remaining protection time in seconds
-     */
     public int getRemainingProtectionTime(UUID playerUUID) {
+        if (!anyProtectionEnabled()) {
+            return 0;
+        }
+
         PlayerProtectionData data = protectionData.get(playerUUID);
         if (data == null) return 0;
 
@@ -65,72 +55,78 @@ public class PlayerProtectionManager {
         return remaining > 0 ? (int)(remaining / 1000) : 0;
     }
 
-    /**
-     * grant protection to a new player
-     */
     public void grantNewPlayerProtection(UUID playerUUID) {
+        if (!VoteKickMod.getConfig().isNewPlayerProtectionEnabled()) {
+            knownPlayers.add(playerUUID);
+            return;
+        }
+
         PlayerProtectionData data = protectionData.computeIfAbsent(playerUUID, k -> new PlayerProtectionData());
-        data.protectionUntil = System.currentTimeMillis() + NEW_PLAYER_PROTECTION_MS;
+        long duration = VoteKickMod.getConfig().getNewPlayerProtectionDuration() * 1000L;
+        data.protectionUntil = System.currentTimeMillis() + duration;
         data.isNewPlayer = true;
         knownPlayers.add(playerUUID);
         save();
     }
 
-    /**
-     * record a kick and grant appropriate protection
-     */
     public void recordKick(UUID playerUUID, String reason) {
         PlayerProtectionData data = protectionData.computeIfAbsent(playerUUID, k -> new PlayerProtectionData());
 
-        // increment kick count
         data.totalKicks++;
         data.lastKickTime = System.currentTimeMillis();
         data.kickHistory.add(new KickRecord(System.currentTimeMillis(), reason));
 
-        // keep only last 10 kicks in history
         if (data.kickHistory.size() > 10) {
             data.kickHistory.remove(0);
         }
 
-        // calculate protection duration based on recent kicks
-        long protectionDuration = calculateProtectionDuration(data);
-        data.protectionUntil = System.currentTimeMillis() + protectionDuration;
+        if (VoteKickMod.getConfig().isPostKickProtectionEnabled()) {
+            long protectionDuration = calculateProtectionDuration(data);
+            data.protectionUntil = System.currentTimeMillis() + protectionDuration;
+        }
 
-        // no longer a new player after first kick
         data.isNewPlayer = false;
 
         LOGGER.info("Player {} kicked (total: {}), protected for {} seconds",
-                playerUUID, data.totalKicks, protectionDuration / 1000);
+                playerUUID, data.totalKicks,
+                VoteKickMod.getConfig().isPostKickProtectionEnabled() ?
+                        calculateProtectionDuration(data) / 1000 : 0);
 
         save();
     }
 
-    /**
-     * calculate how long to protect based on kick history
-     */
     private long calculateProtectionDuration(PlayerProtectionData data) {
-        // count recent kicks (last hour)
-        long oneHourAgo = System.currentTimeMillis() - 3600_000;
+        if (!VoteKickMod.getConfig().isPostKickProtectionEnabled()) {
+            return 0;
+        }
+
+        if (!VoteKickMod.getConfig().isHarassmentDetectionEnabled()) {
+            return VoteKickMod.getConfig().getPostKickProtectionDuration() * 1000L;
+        }
+
+        long timeWindow = VoteKickMod.getConfig().getHarassmentTimeWindow() * 1000L;
+        long windowStart = System.currentTimeMillis() - timeWindow;
+
         long recentKicks = data.kickHistory.stream()
-                .filter(k -> k.timestamp > oneHourAgo)
+                .filter(k -> k.timestamp > windowStart)
                 .count();
 
-        // escalating protection based on harassment level
-        if (recentKicks >= 5) {
-            return 3600_000; // 1 hour if kicked 5+ times in an hour
-        } else if (recentKicks >= 3) {
-            return REPEATED_KICK_PROTECTION_MS; // 30 min
-        } else if (data.totalKicks >= KICKS_FOR_EXTENDED_PROTECTION) {
-            return REPEATED_KICK_PROTECTION_MS; // 30 min for repeat offenders
+        int harassmentThreshold = VoteKickMod.getConfig().getHarassmentKickThreshold();
+
+        if (recentKicks >= harassmentThreshold + 2) {
+            return 3600_000L; // 1 hour for severe harassment
+        } else if (recentKicks >= harassmentThreshold) {
+            return VoteKickMod.getConfig().getExtendedKickProtectionDuration() * 1000L;
         } else {
-            return KICK_PROTECTION_MS; // 10 min standard
+            return VoteKickMod.getConfig().getPostKickProtectionDuration() * 1000L;
         }
     }
 
-    /**
-     * get how many times a player has been kicked recently
-     */
     public int getRecentKickCount(UUID playerUUID, long withinMs) {
+        if (!VoteKickMod.getConfig().isHarassmentDetectionEnabled()) {
+            return 0;
+        }
+
         PlayerProtectionData data = protectionData.get(playerUUID);
         if (data == null) return 0;
 
@@ -140,56 +136,74 @@ public class PlayerProtectionManager {
                 .count();
     }
 
-    /**
-     * check if player has joined before
-     */
     public boolean hasJoinedBefore(UUID playerUUID) {
         return knownPlayers.contains(playerUUID);
     }
 
-    /**
-     * get vote threshold modifier based on player's kick history
-     * returns a multiplier for required vote percentage
-     */
     public double getVoteThresholdModifier(UUID playerUUID) {
+        if (!VoteKickMod.getConfig().isVoteThresholdModifiersEnabled()) {
+            return 1.0;
+        }
+
         PlayerProtectionData data = protectionData.get(playerUUID);
         if (data == null) return 1.0;
 
-        // make it harder to kick someone who's been kicked a lot
-        if (data.totalKicks >= 5) return 1.5; // need 50% more votes
-        if (data.totalKicks >= 3) return 1.25; // need 25% more votes
+        int lightThreshold = VoteKickMod.getConfig().getLightModifierThreshold();
+        int heavyThreshold = VoteKickMod.getConfig().getHeavyModifierThreshold();
 
-        // check recent kicks
-        int recentKicks = getRecentKickCount(playerUUID, 3600_000); // last hour
-        if (recentKicks >= 2) return 1.35; // need 35% more votes if kicked twice recently
+        if (data.totalKicks >= heavyThreshold) {
+            return VoteKickMod.getConfig().getHeavyVoteModifier();
+        }
+
+        if (data.totalKicks >= lightThreshold) {
+            return VoteKickMod.getConfig().getLightVoteModifier();
+        }
+
+        if (VoteKickMod.getConfig().isHarassmentDetectionEnabled()) {
+            long timeWindow = VoteKickMod.getConfig().getHarassmentTimeWindow() * 1000L;
+            int recentKicks = getRecentKickCount(playerUUID, timeWindow);
+            int harassmentThreshold = VoteKickMod.getConfig().getHarassmentKickThreshold();
+
+            if (recentKicks >= harassmentThreshold - 1) {
+                return VoteKickMod.getConfig().getLightVoteModifier();
+            }
+        }
 
         return 1.0;
     }
 
-    /**
-     * cleanup old data
-     */
     public void cleanup() {
+        if (!anyProtectionEnabled()) {
+            return;
+        }
+
         long now = System.currentTimeMillis();
-        long thirtyDaysAgo = now - (30L * 24 * 60 * 60 * 1000);
+        long cleanupTime = VoteKickMod.getConfig().getDataCleanupDays() * 24L * 60 * 60 * 1000;
+        long expireTime = now - cleanupTime;
 
         protectionData.entrySet().removeIf(entry -> {
             PlayerProtectionData data = entry.getValue();
-            // remove if no protection and hasn't been kicked in 30 days
             return data.protectionUntil < now &&
                     (data.kickHistory.isEmpty() ||
-                            data.kickHistory.get(data.kickHistory.size() - 1).timestamp < thirtyDaysAgo);
+                            data.kickHistory.get(data.kickHistory.size() - 1).timestamp < expireTime);
         });
     }
 
-    /**
-     * save protection data to disk
-     */
+    private boolean anyProtectionEnabled() {
+        return VoteKickMod.getConfig().isNewPlayerProtectionEnabled() ||
+                VoteKickMod.getConfig().isPostKickProtectionEnabled() ||
+                VoteKickMod.getConfig().isHarassmentDetectionEnabled() ||
+                VoteKickMod.getConfig().isVoteThresholdModifiersEnabled();
+    }
+
     public void save() {
+        if (!anyProtectionEnabled()) {
+            return;
+        }
+
         try (FileWriter writer = new FileWriter(dataFile)) {
             Map<String, Object> saveData = new HashMap<>();
 
-            // convert UUIDs to strings for json
             Map<String, PlayerProtectionData> stringKeyedData = new HashMap<>();
             protectionData.forEach((uuid, data) -> stringKeyedData.put(uuid.toString(), data));
 
@@ -202,10 +216,11 @@ public class PlayerProtectionManager {
         }
     }
 
-    /**
-     * load protection data from disk
-     */
     public void load() {
+        if (!anyProtectionEnabled()) {
+            return;
+        }
+
         if (!dataFile.exists()) return;
 
         try (FileReader reader = new FileReader(dataFile)) {
@@ -213,7 +228,6 @@ public class PlayerProtectionManager {
             Map<String, Object> loadedData = gson.fromJson(reader, type);
 
             if (loadedData != null) {
-                // load protection data
                 Map<String, PlayerProtectionData> stringKeyedData = gson.fromJson(
                         gson.toJson(loadedData.get("protectionData")),
                         new TypeToken<Map<String, PlayerProtectionData>>(){}.getType()
@@ -229,7 +243,6 @@ public class PlayerProtectionManager {
                     });
                 }
 
-                // load known players
                 List<String> knownPlayerStrings = gson.fromJson(
                         gson.toJson(loadedData.get("knownPlayers")),
                         new TypeToken<List<String>>(){}.getType()
@@ -252,9 +265,6 @@ public class PlayerProtectionManager {
         }
     }
 
-    /**
-     * data class for player protection info
-     */
     private static class PlayerProtectionData {
         long protectionUntil = 0;
         int totalKicks = 0;
@@ -263,9 +273,6 @@ public class PlayerProtectionManager {
         List<KickRecord> kickHistory = new ArrayList<>();
     }
 
-    /**
-     * record of a single kick event
-     */
     private static class KickRecord {
         final long timestamp;
         final String reason;

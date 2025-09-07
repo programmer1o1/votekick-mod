@@ -34,7 +34,7 @@ public class VoteKickHud {
 
     // base dimensions (will be scaled)
     private static final int BASE_PANEL_WIDTH = 250;
-    private static final int BASE_MIN_PANEL_HEIGHT = 120;
+    private static final int BASE_MIN_PANEL_HEIGHT = 140;
     private static final int BASE_PADDING = 12;
     private static final int BASE_LINE_HEIGHT = 12;
     private static final int BASE_MARGIN = 10;
@@ -66,11 +66,11 @@ public class VoteKickHud {
     private static int cachedPanelHeight = BASE_MIN_PANEL_HEIGHT;
 
     public static void init() {
-        HudRenderCallback.EVENT.register((matrixStack, tickDelta) -> {
-            updateAnimation(tickDelta);
+        HudRenderCallback.EVENT.register((guiGraphics, deltaTracker) -> {
+            updateAnimation(deltaTracker);
 
             if (showVotePanel || isAnimating) {
-                render(matrixStack, tickDelta);
+                render(guiGraphics, deltaTracker);
             }
         });
     }
@@ -200,33 +200,27 @@ public class VoteKickHud {
         String icon = isVoteTarget ? "⚠ " : "🗳 ";
         Component titleComponent = Component.literal(icon + voteTitle);
 
-        // scale font rendering
-        if (scale != 1.0f && !config.isCompactMode()) {
-            guiGraphics.pose().pushPose();
-            guiGraphics.pose().translate(x + padding, currentY, 0);
-            guiGraphics.pose().scale(scale, scale, 1.0f);
-            guiGraphics.drawString(font, titleComponent, 0, 0, COLOR_TEXT);
-            guiGraphics.pose().popPose();
-        } else {
-            guiGraphics.drawString(font, titleComponent, x + padding, currentY, COLOR_TEXT);
-        }
-
+        drawScaledText(guiGraphics, font, titleComponent, x + padding, currentY, COLOR_TEXT, scale);
         currentY += lineHeight + (int)(8 * scale);
 
         // separator line
         guiGraphics.fill(x + padding, currentY, x + panelWidth - padding, currentY + 1, 0x30FFFFFF);
         currentY += (int)(6 * scale);
 
-        // wrapped reason text
+        // vote progress section (moved up)
+        renderVoteProgress(guiGraphics, font, x, currentY, panelWidth, scale);
+        currentY += (int)(50 * scale);
+
+        // wrapped reason text (moved after vote progress)
         if (!config.isCompactMode() && wrappedReasonText != null && !wrappedReasonText.isEmpty()) {
             // reason label
-            guiGraphics.drawString(font, "REASON:", x + padding, currentY, COLOR_WARNING);
+            drawScaledText(guiGraphics, font, Component.literal("REASON:"), x + padding, currentY, COLOR_WARNING, scale);
             currentY += lineHeight + (int)(2 * scale);
 
             // reason content with background
             int reasonStartY = currentY;
             for (FormattedCharSequence line : wrappedReasonText) {
-                guiGraphics.drawString(font, line, x + padding + (int)(4 * scale), currentY, COLOR_TEXT_DIM);
+                drawScaledText(guiGraphics, font, line, x + padding + (int)(4 * scale), currentY, COLOR_TEXT_DIM, scale);
                 currentY += lineHeight;
             }
 
@@ -236,39 +230,88 @@ public class VoteKickHud {
             currentY += (int)(8 * scale);
         }
 
-        // vote progress section
-        renderVoteProgress(guiGraphics, font, x, currentY, panelWidth, scale);
-        currentY += (int)(35 * scale);
-
-        // timer with warning pulse
+        // timer section
         if (config.isShowTimeWarnings()) {
             renderTimer(guiGraphics, font, x, currentY, panelWidth, scale);
         } else {
             // simple timer without effects
             Component timerText = Component.literal("Time remaining: " + timeRemaining + "s");
-            guiGraphics.drawString(font, timerText, x + padding, currentY, COLOR_TEXT);
+            drawScaledText(guiGraphics, font, timerText, x + padding, currentY, COLOR_TEXT, scale);
         }
         currentY += lineHeight + (int)(8 * scale);
 
-        // action prompt
+        // vote target warning (moved down, more prominent)
+        if (isVoteTarget) {
+            renderVoteTargetWarning(guiGraphics, font, x, currentY, panelWidth, scale);
+            currentY += (int)(30 * scale);
+        }
+
+        // action prompt (moved to bottom)
         renderActionPrompt(guiGraphics, font, x, y + panelHeight - (int)(25 * scale), panelWidth, scale);
+    }
+
+    private static void drawScaledText(GuiGraphics guiGraphics, Font font, Component text, int x, int y, int color, float scale) {
+        if (scale != 1.0f) {
+            guiGraphics.pose().pushPose();
+            guiGraphics.pose().translate(x, y, 0);
+            guiGraphics.pose().scale(scale, scale, 1.0f);
+            guiGraphics.drawString(font, text, 0, 0, color);
+            guiGraphics.pose().popPose();
+        } else {
+            guiGraphics.drawString(font, text, x, y, color);
+        }
+    }
+
+    private static void drawScaledText(GuiGraphics guiGraphics, Font font, FormattedCharSequence text, int x, int y, int color, float scale) {
+        if (scale != 1.0f) {
+            guiGraphics.pose().pushPose();
+            guiGraphics.pose().translate(x, y, 0);
+            guiGraphics.pose().scale(scale, scale, 1.0f);
+            guiGraphics.drawString(font, text, 0, 0, color);
+            guiGraphics.pose().popPose();
+        } else {
+            guiGraphics.drawString(font, text, x, y, color);
+        }
+    }
+
+    private static void renderVoteTargetWarning(GuiGraphics guiGraphics, Font font, int x, int y, int panelWidth, float scale) {
+        int padding = (int)(BASE_PADDING * scale);
+        int lineHeight = (int)(BASE_LINE_HEIGHT * scale);
+
+        // pulsing background for warning
+        float pulse = (float)Math.sin(pulseAnimation * 3) * 0.4f + 0.4f;
+        int bgColor = (int)(pulse * 180) << 24 | 0xFF4444;
+        guiGraphics.fill(x + padding - 4, y - 4, x + panelWidth - padding + 4, y + lineHeight + 4, bgColor);
+
+        // border
+        guiGraphics.fill(x + padding - 5, y - 5, x + panelWidth - padding + 5, y - 4, COLOR_NO);
+        guiGraphics.fill(x + padding - 5, y + lineHeight + 4, x + panelWidth - padding + 5, y + lineHeight + 5, COLOR_NO);
+        guiGraphics.fill(x + padding - 5, y - 4, x + padding - 4, y + lineHeight + 4, COLOR_NO);
+        guiGraphics.fill(x + panelWidth - padding + 4, y - 4, x + panelWidth - padding + 5, y + lineHeight + 4, COLOR_NO);
+
+        Component warningText = Component.literal("⚠ YOU ARE THE VOTE TARGET! ⚠");
+        int textWidth = (int)(font.width(warningText) * scale);
+        int textX = x + (panelWidth / 2) - (textWidth / 2);
+        drawScaledText(guiGraphics, font, warningText, textX, y, COLOR_TEXT, scale);
     }
 
     private static void renderVoteProgress(GuiGraphics guiGraphics, Font font, int x, int y, int panelWidth, float scale) {
         int padding = (int)(BASE_PADDING * scale);
         int barX = x + padding;
-        int barY = y;
+        int barY = y + (int)(BASE_LINE_HEIGHT * scale + 4 * scale); // moved down to make room for labels
         int barWidth = panelWidth - (padding * 2);
         int barHeight = (int)(20 * scale);
 
-        // vote counts
-        String yesText = String.valueOf(yesVotes);
-        String noText = String.valueOf(noVotes);
+        // vote counts (positioned above the bar)
+        String yesText = "✓ " + yesVotes;
+        String noText = "✗ " + noVotes;
 
-        guiGraphics.drawString(font, Component.literal("✓ " + yesText).withStyle(s -> s.withColor(COLOR_YES)),
-                barX, barY - (int)(BASE_LINE_HEIGHT * scale), COLOR_YES);
-        guiGraphics.drawString(font, Component.literal("✗ " + noText).withStyle(s -> s.withColor(COLOR_NO)),
-                barX + barWidth - font.width("✗ " + noText), barY - (int)(BASE_LINE_HEIGHT * scale), COLOR_NO);
+        drawScaledText(guiGraphics, font, Component.literal(yesText), barX, y, COLOR_YES, scale);
+
+        // calculate position for "No" votes to be right-aligned
+        int noTextWidth = (int)(font.width(noText) * scale);
+        drawScaledText(guiGraphics, font, Component.literal(noText),
+                barX + barWidth - noTextWidth, y, COLOR_NO, scale);
 
         // progress bar background
         guiGraphics.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF2c2c2c);
@@ -302,16 +345,21 @@ public class VoteKickHud {
                 guiGraphics.fill(markerX - 1, barY + i, markerX + 1, barY + Math.min(i + 2, barHeight), 0xFFFFFFFF);
             }
 
-            // threshold label
+            // threshold label (positioned below the bar)
             String thresholdText = votesNeeded + " needed";
-            int textX = Math.min(markerX - font.width(thresholdText) / 2, barX + barWidth - font.width(thresholdText));
-            guiGraphics.drawString(font, thresholdText, Math.max(barX, textX), barY + barHeight + 2, COLOR_TEXT_DIM);
+            int textWidth = (int)(font.width(thresholdText) * scale);
+            int textX = Math.min(markerX - textWidth / 2, barX + barWidth - textWidth);
+            textX = Math.max(barX, textX);
+
+            drawScaledText(guiGraphics, font, Component.literal(thresholdText),
+                    textX, barY + barHeight + (int)(4 * scale), COLOR_TEXT_DIM, scale);
         }
     }
 
     private static void renderTimer(GuiGraphics guiGraphics, Font font, int x, int y, int panelWidth, float scale) {
         ClientConfig config = VoteKickClient.getClientConfig();
         int padding = (int)(BASE_PADDING * scale);
+        int lineHeight = (int)(BASE_LINE_HEIGHT * scale);
         boolean isUrgent = timeRemaining <= 5;
 
         // pulse effect for urgent timer
@@ -328,25 +376,20 @@ public class VoteKickHud {
             // background flash for urgency
             float pulse = (float)Math.sin(pulseAnimation * 5) * 0.3f + 0.3f;
             int bgColor = (int)(pulse * 255) << 24 | 0xFF0000;
-            guiGraphics.fill(x + padding - 2, y - 2, x + panelWidth - padding + 2, y + (int)(BASE_LINE_HEIGHT * scale) + 2, bgColor);
+            guiGraphics.fill(x + padding - 2, y - 2, x + panelWidth - padding + 2, y + lineHeight + 2, bgColor);
         }
 
-        guiGraphics.drawString(font, timerText, x + padding, y, timerColor);
+        drawScaledText(guiGraphics, font, timerText, x + padding, y, timerColor, scale);
     }
 
     private static void renderActionPrompt(GuiGraphics guiGraphics, Font font, int x, int y, int panelWidth, float scale) {
         Component prompt;
         int color;
         int padding = (int)(BASE_PADDING * scale);
+        int lineHeight = (int)(BASE_LINE_HEIGHT * scale);
 
         if (isVoteTarget) {
-            prompt = Component.literal("⚠ You are the vote target!");
-            color = COLOR_NO;
-
-            // pulsing background for warning
-            float pulse = (float)Math.sin(pulseAnimation * 3) * 0.3f + 0.3f;
-            int bgColor = (int)(pulse * 255) << 24 | 0xFF0000;
-            guiGraphics.fill(x + padding - 4, y - 2, x + panelWidth - padding + 4, y + (int)(BASE_LINE_HEIGHT * scale) + 2, bgColor);
+            return;
         } else if (hasVoted) {
             prompt = Component.literal("✓ Vote submitted");
             color = COLOR_YES;
@@ -357,11 +400,12 @@ public class VoteKickHud {
             color = COLOR_TEXT;
 
             // subtle highlight
-            guiGraphics.fill(x + padding - 2, y - 2, x + panelWidth - padding + 2, y + (int)(BASE_LINE_HEIGHT * scale) + 2, 0x20FFFFFF);
+            guiGraphics.fill(x + padding - 2, y - 2, x + panelWidth - padding + 2, y + lineHeight + 2, 0x20FFFFFF);
         }
 
-        int textX = x + (panelWidth / 2) - (font.width(prompt) / 2);
-        guiGraphics.drawString(font, prompt, textX, y, color);
+        int textWidth = (int)(font.width(prompt) * scale);
+        int textX = x + (panelWidth / 2) - (textWidth / 2);
+        drawScaledText(guiGraphics, font, prompt, textX, y, color, scale);
     }
 
     private static int calculatePanelHeight(Font font, float scale) {
@@ -371,11 +415,12 @@ public class VoteKickHud {
             return (int)(BASE_MIN_PANEL_HEIGHT * scale);
         }
 
-        int baseHeight = 120;
+        int baseHeight = BASE_MIN_PANEL_HEIGHT;
         int reasonHeight = wrappedReasonText.size() * (int)(BASE_LINE_HEIGHT * scale);
         return (int)((baseHeight + reasonHeight + 20) * scale);
     }
 
+    // Updated wrapReasonText method to account for proper scaling
     private static void wrapReasonText(Font font, float scale) {
         if (voteReason == null || voteReason.isEmpty()) {
             wrappedReasonText = null;
@@ -383,7 +428,8 @@ public class VoteKickHud {
         }
 
         String cleanReason = voteReason.replace("Reason: ", "").trim();
-        int maxWidth = (int)((BASE_PANEL_WIDTH - (BASE_PADDING * 2) - 8) * scale);
+        // Account for scaling in text wrapping calculation
+        int maxWidth = BASE_PANEL_WIDTH - (BASE_PADDING * 2) - 8;
 
         wrappedReasonText = font.split(Component.literal(cleanReason), maxWidth);
         cachedPanelHeight = calculatePanelHeight(font, scale);

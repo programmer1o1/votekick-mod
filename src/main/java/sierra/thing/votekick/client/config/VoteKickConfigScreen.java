@@ -1,6 +1,7 @@
 // VoteKickConfigScreen.java
 package sierra.thing.votekick.client.config;
 
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.CycleButton;
@@ -224,86 +225,40 @@ public class VoteKickConfigScreen extends Screen {
 
     private void renderCompactPreview(GuiGraphics guiGraphics) {
         // calculate preview area
-        int previewX = this.width - 180;
+        int previewX = this.width - 220;
         int previewY = 40;
-        int previewWidth = 160;
-        int previewHeight = 140;
+        int previewWidth = 200;
+        int previewHeight = 180;
 
         // preview label
         guiGraphics.drawString(this.font, "Preview:", previewX, previewY - 12, 0xFFFF55);
 
         // calculate preview panel dimensions
-        float scale = Math.min(tempScale * 0.7f, 1.0f); // scale down for preview
-        int baseWidth = 140;
-        int baseHeight = tempCompact ? 70 : 90;
-        int panelWidth = (int)(baseWidth * scale);
-        int panelHeight = (int)(baseHeight * scale);
-        int padding = Math.max(4, (int)(6 * scale));
+        float scale = tempScale * 0.7f; // scale down for preview
+        int panelWidth = (int)(250 * scale);
+        int panelHeight = calculatePreviewPanelHeight(scale);
+        int padding = (int)(12 * scale);
 
         // center the preview panel
         int panelX = previewX + (previewWidth - panelWidth) / 2;
         int panelY = previewY + 10;
 
         // shadow
-        guiGraphics.fill(panelX + 1, panelY + 1, panelX + panelWidth + 1, panelY + panelHeight + 1, COLOR_SHADOW);
+        guiGraphics.fill(panelX + 2, panelY + 2, panelX + panelWidth + 2, panelY + panelHeight + 2, COLOR_SHADOW);
 
         // main background
         guiGraphics.fill(panelX, panelY, panelX + panelWidth, panelY + panelHeight, COLOR_BACKGROUND);
 
         // header background
-        int headerHeight = Math.max(12, (int)(16 * scale));
+        int headerHeight = (int)(30 * scale);
         guiGraphics.fill(panelX, panelY, panelX + panelWidth, panelY + headerHeight, COLOR_HEADER_BG);
 
         // accent stripe
-        int stripeWidth = Math.max(2, (int)(3 * scale));
+        int stripeWidth = (int)(3 * scale);
         guiGraphics.fill(panelX, panelY, panelX + stripeWidth, panelY + panelHeight, COLOR_ACCENT);
 
-        // content
-        int contentY = panelY + padding;
-        int lineHeight = Math.max(8, (int)(9 * scale));
-
-        // title
-        String title = "🗳 Kick TestUser?";
-        if (scale < 0.8f) {
-            title = "Kick TestUser?";
-        }
-        guiGraphics.drawString(this.font, title, panelX + padding, contentY, COLOR_TEXT);
-        contentY += lineHeight + 2;
-
-        // reason
-        if (!tempCompact) {
-            String reason = "Reason: Griefing";
-            guiGraphics.drawString(this.font, reason, panelX + padding, contentY, COLOR_TEXT_DIM);
-            contentY += lineHeight + 1;
-        }
-
-        // vote progress bar
-        int barWidth = panelWidth - (padding * 2);
-        int barHeight = Math.max(6, (int)(8 * scale));
-
-        guiGraphics.fill(panelX + padding, contentY, panelX + padding + barWidth, contentY + barHeight, 0xFF2c2c2c);
-
-        // simulate 4 yes, 1 no votes
-        int yesWidth = (int)(barWidth * 0.8f);
-        guiGraphics.fill(panelX + padding, contentY, panelX + padding + yesWidth, contentY + barHeight, COLOR_YES);
-        guiGraphics.fill(panelX + padding + yesWidth, contentY, panelX + padding + barWidth, contentY + barHeight, COLOR_NO);
-
-        contentY += barHeight + 4;
-
-        // timer (with pulse if warnings enabled)
-        int timerColor = COLOR_TEXT;
-        if (tempWarnings) {
-            float pulse = (float)Math.sin(previewPulse * 4) * 0.4f + 0.6f;
-            timerColor = interpolateColor(COLOR_TEXT, COLOR_WARNING, 1.0f - pulse);
-        }
-        guiGraphics.drawString(this.font, "Time remaining: 12s", panelX + padding, contentY, timerColor);
-        contentY += lineHeight + 2;
-
-        // action prompt
-        String prompt = "[F1] Yes • [F2] No";
-        int promptWidth = this.font.width(prompt);
-        int promptX = panelX + (panelWidth - promptWidth) / 2;
-        guiGraphics.drawString(this.font, prompt, promptX, panelY + panelHeight - lineHeight - 2, COLOR_TEXT);
+        // render content matching VoteKickHud
+        renderPreviewContent(guiGraphics, panelX, panelY, panelWidth, panelHeight, scale);
 
         // position indicator below preview
         String[] posNames = {"Top-Right", "Top-Left", "Bottom-Right", "Bottom-Left"};
@@ -311,6 +266,163 @@ public class VoteKickConfigScreen extends Screen {
         int posTextWidth = this.font.width(posText);
         guiGraphics.drawString(this.font, posText, previewX + (previewWidth - posTextWidth) / 2,
                 panelY + panelHeight + 8, 0xAAAAAA);
+    }
+
+    private void renderPreviewContent(GuiGraphics guiGraphics, int x, int y, int panelWidth, int panelHeight, float scale) {
+        int padding = (int)(12 * scale);
+        int lineHeight = (int)(12 * scale);
+        int currentY = y + padding;
+
+        // title with icon
+        String icon = "🗳 ";
+        Component titleComponent = Component.literal(icon + "Kick TestUser?");
+        drawScaledText(guiGraphics, this.font, titleComponent, x + padding, currentY, COLOR_TEXT, scale);
+        currentY += lineHeight + (int)(8 * scale);
+
+        // separator line
+        guiGraphics.fill(x + padding, currentY, x + panelWidth - padding, currentY + 1, 0x30FFFFFF);
+        currentY += (int)(6 * scale);
+
+        // vote progress section
+        renderPreviewVoteProgress(guiGraphics, x, currentY, panelWidth, scale);
+        currentY += (int)(50 * scale);
+
+        // reason text
+        if (!tempCompact) {
+            // reason label
+            drawScaledText(guiGraphics, this.font, Component.literal("REASON:"), x + padding, currentY, COLOR_WARNING, scale);
+            currentY += lineHeight + (int)(2 * scale);
+
+            // reason content with background
+            int reasonStartY = currentY;
+            String reasonText = "Griefing spawn area";
+            drawScaledText(guiGraphics, this.font, Component.literal(reasonText),
+                    x + padding + (int)(4 * scale), currentY, COLOR_TEXT_DIM, scale);
+            currentY += lineHeight;
+
+            // subtle background for reason
+            guiGraphics.fill(x + padding, reasonStartY - 2,
+                    x + panelWidth - padding, currentY, 0x20FFFFFF);
+            currentY += (int)(8 * scale);
+        }
+
+        // timer section
+        if (tempWarnings) {
+            renderPreviewTimer(guiGraphics, x, currentY, panelWidth, scale);
+        } else {
+            Component timerText = Component.literal("⏱ Time remaining: 12s");
+            drawScaledText(guiGraphics, this.font, timerText, x + padding, currentY, COLOR_TEXT, scale);
+        }
+
+        // action prompt at bottom
+        renderPreviewActionPrompt(guiGraphics, x, y + panelHeight - (int)(25 * scale), panelWidth, scale);
+    }
+
+    private void renderPreviewVoteProgress(GuiGraphics guiGraphics, int x, int y, int panelWidth, float scale) {
+        int padding = (int)(12 * scale);
+        int barX = x + padding;
+        int barY = y + (int)(12 * scale + 4 * scale);
+        int barWidth = panelWidth - (padding * 2);
+        int barHeight = (int)(20 * scale);
+
+        // vote counts above bar
+        String yesText = "✓ 4";
+        String noText = "✗ 1";
+
+        drawScaledText(guiGraphics, this.font, Component.literal(yesText), barX, y, COLOR_YES, scale);
+
+        // right-align no votes
+        int noTextWidth = (int)(this.font.width(noText) * scale);
+        drawScaledText(guiGraphics, this.font, Component.literal(noText),
+                barX + barWidth - noTextWidth, y, COLOR_NO, scale);
+
+        // progress bar background
+        guiGraphics.fill(barX, barY, barX + barWidth, barY + barHeight, 0xFF2c2c2c);
+
+        // simulate 80% yes votes
+        int yesWidth = (int)(barWidth * 0.8f);
+
+        // yes votes gradient
+        guiGraphics.fillGradient(barX, barY, barX + yesWidth, barY + barHeight,
+                COLOR_YES, darken(COLOR_YES, 0.7f));
+
+        // no votes gradient
+        guiGraphics.fillGradient(barX + yesWidth, barY, barX + barWidth, barY + barHeight,
+                COLOR_NO, darken(COLOR_NO, 0.7f));
+
+        // threshold marker at 66%
+        int markerX = barX + (int)(barWidth * 0.66f);
+
+        // white dashed line
+        for (int i = 0; i < barHeight; i += 3) {
+            guiGraphics.fill(markerX - 1, barY + i, markerX + 1, barY + Math.min(i + 2, barHeight), 0xFFFFFFFF);
+        }
+
+        // threshold label below bar
+        String thresholdText = "3 needed";
+        int textWidth = (int)(this.font.width(thresholdText) * scale);
+        int textX = Math.min(markerX - textWidth / 2, barX + barWidth - textWidth);
+        textX = Math.max(barX, textX);
+
+        drawScaledText(guiGraphics, this.font, Component.literal(thresholdText),
+                textX, barY + barHeight + (int)(4 * scale), COLOR_TEXT_DIM, scale);
+    }
+
+    private void renderPreviewTimer(GuiGraphics guiGraphics, int x, int y, int panelWidth, float scale) {
+        int padding = (int)(12 * scale);
+        int lineHeight = (int)(12 * scale);
+
+        // simulate urgent timer
+        float pulse = (float)Math.sin(previewPulse * 5) * 0.5f + 0.5f;
+        int timerColor = interpolateColor(COLOR_WARNING, COLOR_NO, pulse);
+
+        // background flash
+        float bgPulse = (float)Math.sin(previewPulse * 5) * 0.3f + 0.3f;
+        int bgColor = (int)(bgPulse * 255) << 24 | 0xFF0000;
+        guiGraphics.fill(x + padding - 2, y - 2, x + panelWidth - padding + 2, y + lineHeight + 2, bgColor);
+
+        Component timerText = Component.literal("⏰ Time remaining: 4s");
+        drawScaledText(guiGraphics, this.font, timerText, x + padding, y, timerColor, scale);
+    }
+
+    private void renderPreviewActionPrompt(GuiGraphics guiGraphics, int x, int y, int panelWidth, float scale) {
+        int padding = (int)(12 * scale);
+        int lineHeight = (int)(12 * scale);
+
+        // subtle highlight
+        guiGraphics.fill(x + padding - 2, y - 2, x + panelWidth - padding + 2, y + lineHeight + 2, 0x20FFFFFF);
+
+        Component prompt = Component.literal("Press [F1] Yes • [F2] No");
+        int textWidth = (int)(this.font.width(prompt) * scale);
+        int textX = x + (panelWidth / 2) - (textWidth / 2);
+        drawScaledText(guiGraphics, this.font, prompt, textX, y, COLOR_TEXT, scale);
+    }
+
+    private int calculatePreviewPanelHeight(float scale) {
+        if (tempCompact) {
+            return (int)(140 * scale);
+        }
+        return (int)(160 * scale);
+    }
+
+    private void drawScaledText(GuiGraphics guiGraphics, Font font, Component text, int x, int y, int color, float scale) {
+        if (scale != 1.0f) {
+            guiGraphics.pose().pushPose();
+            guiGraphics.pose().translate(x, y, 0);
+            guiGraphics.pose().scale(scale, scale, 1.0f);
+            guiGraphics.drawString(font, text, 0, 0, color);
+            guiGraphics.pose().popPose();
+        } else {
+            guiGraphics.drawString(font, text, x, y, color);
+        }
+    }
+
+    private int darken(int color, float factor) {
+        int a = (color >> 24) & 0xFF;
+        int r = (int)(((color >> 16) & 0xFF) * factor);
+        int g = (int)(((color >> 8) & 0xFF) * factor);
+        int b = (int)((color & 0xFF) * factor);
+        return (a << 24) | (r << 16) | (g << 8) | b;
     }
 
     private int interpolateColor(int color1, int color2, float ratio) {

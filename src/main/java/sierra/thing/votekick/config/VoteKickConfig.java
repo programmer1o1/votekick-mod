@@ -10,15 +10,30 @@ import java.util.Properties;
 public class VoteKickConfig {
     private static final Logger LOGGER = LoggerFactory.getLogger(VoteKickMod.MOD_ID);
 
-    // defaults
+    // basic vote settings
     private static final int DEFAULT_VOTE_DURATION = 30;
     private static final int DEFAULT_COOLDOWN = 120;
     private static final double DEFAULT_PASS_PERCENTAGE = 0.6;
     private static final int DEFAULT_MIN_PLAYERS = 2;
     private static final boolean DEFAULT_REQUIRE_REASON = true;
     private static final int DEFAULT_MAX_REASON_LENGTH = 100;
-    private static final boolean DEFAULT_PROTECTION_ENABLED = true;
-    private static final int DEFAULT_PROTECTION_DURATION = 600; // 10 minutes
+    private static final int DEFAULT_TARGET_COOLDOWN = 300;
+
+    // protection system defaults
+    private static final boolean DEFAULT_NEW_PLAYER_PROTECTION = true;
+    private static final int DEFAULT_NEW_PLAYER_DURATION = 300; // 5 minutes
+    private static final boolean DEFAULT_POST_KICK_PROTECTION = true;
+    private static final int DEFAULT_POST_KICK_DURATION = 600; // 10 minutes
+    private static final int DEFAULT_EXTENDED_KICK_DURATION = 1800; // 30 minutes
+    private static final boolean DEFAULT_HARASSMENT_DETECTION = true;
+    private static final int DEFAULT_HARASSMENT_KICK_THRESHOLD = 3;
+    private static final int DEFAULT_HARASSMENT_TIME_WINDOW = 3600; // 1 hour
+    private static final boolean DEFAULT_VOTE_THRESHOLD_MODIFIERS = true;
+    private static final double DEFAULT_LIGHT_MODIFIER = 1.25; // 25% more votes
+    private static final double DEFAULT_HEAVY_MODIFIER = 1.5; // 50% more votes
+    private static final int DEFAULT_LIGHT_MODIFIER_THRESHOLD = 3;
+    private static final int DEFAULT_HEAVY_MODIFIER_THRESHOLD = 5;
+    private static final int DEFAULT_DATA_CLEANUP_DAYS = 30;
 
     // limits
     private static final int MIN_VOTE_DURATION = 5;
@@ -28,7 +43,7 @@ public class VoteKickConfig {
     private static final int MIN_REASON_LENGTH = 10;
     private static final int MAX_REASON_LENGTH = 500;
 
-    // config values
+    // basic vote config
     private final int voteDurationSeconds;
     private final int cooldownSeconds;
     private final double votePassPercentage;
@@ -37,8 +52,23 @@ public class VoteKickConfig {
     private final boolean notifyPlayerOnVoteStart;
     private final boolean requireKickReason;
     private final int maxReasonLength;
-    private final boolean protectionEnabled;
-    private final int protectionDurationSeconds;
+    private final int targetCooldownSeconds;
+
+    // protection system config
+    private final boolean newPlayerProtectionEnabled;
+    private final int newPlayerProtectionDuration;
+    private final boolean postKickProtectionEnabled;
+    private final int postKickProtectionDuration;
+    private final int extendedKickProtectionDuration;
+    private final boolean harassmentDetectionEnabled;
+    private final int harassmentKickThreshold;
+    private final int harassmentTimeWindow;
+    private final boolean voteThresholdModifiersEnabled;
+    private final double lightVoteModifier;
+    private final double heavyVoteModifier;
+    private final int lightModifierThreshold;
+    private final int heavyModifierThreshold;
+    private final int dataCleanupDays;
 
     public VoteKickConfig() {
         this.voteDurationSeconds = DEFAULT_VOTE_DURATION;
@@ -49,19 +79,31 @@ public class VoteKickConfig {
         this.notifyPlayerOnVoteStart = true;
         this.requireKickReason = DEFAULT_REQUIRE_REASON;
         this.maxReasonLength = DEFAULT_MAX_REASON_LENGTH;
-        this.protectionEnabled = DEFAULT_PROTECTION_ENABLED;
-        this.protectionDurationSeconds = DEFAULT_PROTECTION_DURATION;
+        this.targetCooldownSeconds = DEFAULT_TARGET_COOLDOWN;
+
+        this.newPlayerProtectionEnabled = DEFAULT_NEW_PLAYER_PROTECTION;
+        this.newPlayerProtectionDuration = DEFAULT_NEW_PLAYER_DURATION;
+        this.postKickProtectionEnabled = DEFAULT_POST_KICK_PROTECTION;
+        this.postKickProtectionDuration = DEFAULT_POST_KICK_DURATION;
+        this.extendedKickProtectionDuration = DEFAULT_EXTENDED_KICK_DURATION;
+        this.harassmentDetectionEnabled = DEFAULT_HARASSMENT_DETECTION;
+        this.harassmentKickThreshold = DEFAULT_HARASSMENT_KICK_THRESHOLD;
+        this.harassmentTimeWindow = DEFAULT_HARASSMENT_TIME_WINDOW;
+        this.voteThresholdModifiersEnabled = DEFAULT_VOTE_THRESHOLD_MODIFIERS;
+        this.lightVoteModifier = DEFAULT_LIGHT_MODIFIER;
+        this.heavyVoteModifier = DEFAULT_HEAVY_MODIFIER;
+        this.lightModifierThreshold = DEFAULT_LIGHT_MODIFIER_THRESHOLD;
+        this.heavyModifierThreshold = DEFAULT_HEAVY_MODIFIER_THRESHOLD;
+        this.dataCleanupDays = DEFAULT_DATA_CLEANUP_DAYS;
     }
 
     public VoteKickConfig(Properties props) {
-        // vote duration
+        // basic vote settings
         int duration = DEFAULT_VOTE_DURATION;
         try {
-            duration = Integer.parseInt(props.getProperty("vote_duration_seconds",
-                    String.valueOf(DEFAULT_VOTE_DURATION)));
+            duration = Integer.parseInt(props.getProperty("vote_duration_seconds", String.valueOf(DEFAULT_VOTE_DURATION)));
             if (duration < MIN_VOTE_DURATION || duration > MAX_VOTE_DURATION) {
-                LOGGER.warn("Invalid vote_duration_seconds ({}), must be between {} and {}. Using default: {}",
-                        duration, MIN_VOTE_DURATION, MAX_VOTE_DURATION, DEFAULT_VOTE_DURATION);
+                LOGGER.warn("Invalid vote_duration_seconds ({}), using default: {}", duration, DEFAULT_VOTE_DURATION);
                 duration = DEFAULT_VOTE_DURATION;
             }
         } catch (NumberFormatException e) {
@@ -69,14 +111,11 @@ public class VoteKickConfig {
         }
         this.voteDurationSeconds = duration;
 
-        // cooldown
         int cooldown = DEFAULT_COOLDOWN;
         try {
-            cooldown = Integer.parseInt(props.getProperty("cooldown_seconds",
-                    String.valueOf(DEFAULT_COOLDOWN)));
+            cooldown = Integer.parseInt(props.getProperty("cooldown_seconds", String.valueOf(DEFAULT_COOLDOWN)));
             if (cooldown < MIN_COOLDOWN || cooldown > MAX_COOLDOWN) {
-                LOGGER.warn("Invalid cooldown_seconds ({}), must be between {} and {}. Using default: {}",
-                        cooldown, MIN_COOLDOWN, MAX_COOLDOWN, DEFAULT_COOLDOWN);
+                LOGGER.warn("Invalid cooldown_seconds ({}), using default: {}", cooldown, DEFAULT_COOLDOWN);
                 cooldown = DEFAULT_COOLDOWN;
             }
         } catch (NumberFormatException e) {
@@ -84,14 +123,23 @@ public class VoteKickConfig {
         }
         this.cooldownSeconds = cooldown;
 
-        // pass percentage
+        int targetCooldown = DEFAULT_TARGET_COOLDOWN;
+        try {
+            targetCooldown = Integer.parseInt(props.getProperty("target_cooldown_seconds", String.valueOf(DEFAULT_TARGET_COOLDOWN)));
+            if (targetCooldown < 0 || targetCooldown > MAX_COOLDOWN) {
+                LOGGER.warn("Invalid target_cooldown_seconds ({}), using default: {}", targetCooldown, DEFAULT_TARGET_COOLDOWN);
+                targetCooldown = DEFAULT_TARGET_COOLDOWN;
+            }
+        } catch (NumberFormatException e) {
+            LOGGER.warn("Invalid target_cooldown_seconds format, using default: {}", DEFAULT_TARGET_COOLDOWN);
+        }
+        this.targetCooldownSeconds = targetCooldown;
+
         double percentage = DEFAULT_PASS_PERCENTAGE;
         try {
-            percentage = Double.parseDouble(props.getProperty("vote_pass_percentage",
-                    String.valueOf(DEFAULT_PASS_PERCENTAGE)));
+            percentage = Double.parseDouble(props.getProperty("vote_pass_percentage", String.valueOf(DEFAULT_PASS_PERCENTAGE)));
             if (percentage <= 0.0 || percentage > 1.0) {
-                LOGGER.warn("Invalid vote_pass_percentage ({}), must be between 0.0 and 1.0. Using default: {}",
-                        percentage, DEFAULT_PASS_PERCENTAGE);
+                LOGGER.warn("Invalid vote_pass_percentage ({}), using default: {}", percentage, DEFAULT_PASS_PERCENTAGE);
                 percentage = DEFAULT_PASS_PERCENTAGE;
             }
         } catch (NumberFormatException e) {
@@ -99,14 +147,11 @@ public class VoteKickConfig {
         }
         this.votePassPercentage = percentage;
 
-        // minimum players
         int minPlayers = DEFAULT_MIN_PLAYERS;
         try {
-            minPlayers = Integer.parseInt(props.getProperty("minimum_players",
-                    String.valueOf(DEFAULT_MIN_PLAYERS)));
+            minPlayers = Integer.parseInt(props.getProperty("minimum_players", String.valueOf(DEFAULT_MIN_PLAYERS)));
             if (minPlayers < 2) {
-                LOGGER.warn("Invalid minimum_players ({}), must be at least 2. Using default: {}",
-                        minPlayers, DEFAULT_MIN_PLAYERS);
+                LOGGER.warn("Invalid minimum_players ({}), using default: {}", minPlayers, DEFAULT_MIN_PLAYERS);
                 minPlayers = DEFAULT_MIN_PLAYERS;
             }
         } catch (NumberFormatException e) {
@@ -114,84 +159,140 @@ public class VoteKickConfig {
         }
         this.minimumPlayers = minPlayers;
 
-        // booleans
-        this.allowSelfVoting = Boolean.parseBoolean(
-                props.getProperty("allow_self_voting", "false"));
-        this.notifyPlayerOnVoteStart = Boolean.parseBoolean(
-                props.getProperty("notify_target_on_vote_start", "true"));
-        this.requireKickReason = Boolean.parseBoolean(
-                props.getProperty("require_kick_reason", "true"));
-        this.protectionEnabled = Boolean.parseBoolean(
-                props.getProperty("protection_enabled", "true"));
+        this.allowSelfVoting = Boolean.parseBoolean(props.getProperty("allow_self_voting", "false"));
+        this.notifyPlayerOnVoteStart = Boolean.parseBoolean(props.getProperty("notify_target_on_vote_start", "true"));
+        this.requireKickReason = Boolean.parseBoolean(props.getProperty("require_kick_reason", "true"));
 
-        // max reason length
         int maxLength = DEFAULT_MAX_REASON_LENGTH;
         try {
-            maxLength = Integer.parseInt(props.getProperty("max_reason_length",
-                    String.valueOf(DEFAULT_MAX_REASON_LENGTH)));
+            maxLength = Integer.parseInt(props.getProperty("max_reason_length", String.valueOf(DEFAULT_MAX_REASON_LENGTH)));
             if (maxLength < MIN_REASON_LENGTH || maxLength > MAX_REASON_LENGTH) {
-                LOGGER.warn("Invalid max_reason_length ({}), must be between {} and {}. Using default: {}",
-                        maxLength, MIN_REASON_LENGTH, MAX_REASON_LENGTH, DEFAULT_MAX_REASON_LENGTH);
+                LOGGER.warn("Invalid max_reason_length ({}), using default: {}", maxLength, DEFAULT_MAX_REASON_LENGTH);
                 maxLength = DEFAULT_MAX_REASON_LENGTH;
-            }} catch (NumberFormatException e) {
+            }
+        } catch (NumberFormatException e) {
             LOGGER.warn("Invalid max_reason_length format, using default: {}", DEFAULT_MAX_REASON_LENGTH);
         }
         this.maxReasonLength = maxLength;
 
-        // protection duration
-        int protectionDuration = DEFAULT_PROTECTION_DURATION;
+        // protection system settings
+        this.newPlayerProtectionEnabled = Boolean.parseBoolean(props.getProperty("new_player_protection_enabled", "true"));
+
+        int newPlayerDuration = DEFAULT_NEW_PLAYER_DURATION;
         try {
-            protectionDuration = Integer.parseInt(props.getProperty("protection_duration_seconds",
-                    String.valueOf(DEFAULT_PROTECTION_DURATION)));
-            if (protectionDuration < 0) {
-                LOGGER.warn("Invalid protection_duration_seconds ({}), must be positive. Using default: {}",
-                        protectionDuration, DEFAULT_PROTECTION_DURATION);
-                protectionDuration = DEFAULT_PROTECTION_DURATION;
+            newPlayerDuration = Integer.parseInt(props.getProperty("new_player_protection_duration", String.valueOf(DEFAULT_NEW_PLAYER_DURATION)));
+            if (newPlayerDuration < 0) {
+                newPlayerDuration = DEFAULT_NEW_PLAYER_DURATION;
             }
         } catch (NumberFormatException e) {
-            LOGGER.warn("Invalid protection_duration_seconds format, using default: {}", DEFAULT_PROTECTION_DURATION);
+            newPlayerDuration = DEFAULT_NEW_PLAYER_DURATION;
         }
-        this.protectionDurationSeconds = protectionDuration;
-    }
+        this.newPlayerProtectionDuration = newPlayerDuration;
 
-    public int getVoteDurationSeconds() {
-        return voteDurationSeconds;
-    }
+        this.postKickProtectionEnabled = Boolean.parseBoolean(props.getProperty("post_kick_protection_enabled", "true"));
 
-    public int getCooldownSeconds() {
-        return cooldownSeconds;
-    }
+        int postKickDuration = DEFAULT_POST_KICK_DURATION;
+        try {
+            postKickDuration = Integer.parseInt(props.getProperty("post_kick_protection_duration", String.valueOf(DEFAULT_POST_KICK_DURATION)));
+            if (postKickDuration < 0) {
+                postKickDuration = DEFAULT_POST_KICK_DURATION;
+            }
+        } catch (NumberFormatException e) {
+            postKickDuration = DEFAULT_POST_KICK_DURATION;
+        }
+        this.postKickProtectionDuration = postKickDuration;
 
-    public double getVotePassPercentage() {
-        return votePassPercentage;
-    }
+        int extendedDuration = DEFAULT_EXTENDED_KICK_DURATION;
+        try {
+            extendedDuration = Integer.parseInt(props.getProperty("extended_kick_protection_duration", String.valueOf(DEFAULT_EXTENDED_KICK_DURATION)));
+            if (extendedDuration < 0) {
+                extendedDuration = DEFAULT_EXTENDED_KICK_DURATION;
+            }
+        } catch (NumberFormatException e) {
+            extendedDuration = DEFAULT_EXTENDED_KICK_DURATION;
+        }
+        this.extendedKickProtectionDuration = extendedDuration;
 
-    public int getMinimumPlayers() {
-        return minimumPlayers;
-    }
+        this.harassmentDetectionEnabled = Boolean.parseBoolean(props.getProperty("harassment_detection_enabled", "true"));
 
-    public boolean isAllowSelfVoting() {
-        return allowSelfVoting;
-    }
+        int harassmentThreshold = DEFAULT_HARASSMENT_KICK_THRESHOLD;
+        try {
+            harassmentThreshold = Integer.parseInt(props.getProperty("harassment_kick_threshold", String.valueOf(DEFAULT_HARASSMENT_KICK_THRESHOLD)));
+            if (harassmentThreshold < 1) {
+                harassmentThreshold = DEFAULT_HARASSMENT_KICK_THRESHOLD;
+            }
+        } catch (NumberFormatException e) {
+            harassmentThreshold = DEFAULT_HARASSMENT_KICK_THRESHOLD;
+        }
+        this.harassmentKickThreshold = harassmentThreshold;
 
-    public boolean isNotifyPlayerOnVoteStart() {
-        return notifyPlayerOnVoteStart;
-    }
+        int harassmentWindow = DEFAULT_HARASSMENT_TIME_WINDOW;
+        try {
+            harassmentWindow = Integer.parseInt(props.getProperty("harassment_time_window", String.valueOf(DEFAULT_HARASSMENT_TIME_WINDOW)));
+            if (harassmentWindow < 60) {
+                harassmentWindow = DEFAULT_HARASSMENT_TIME_WINDOW;
+            }
+        } catch (NumberFormatException e) {
+            harassmentWindow = DEFAULT_HARASSMENT_TIME_WINDOW;
+        }
+        this.harassmentTimeWindow = harassmentWindow;
 
-    public boolean isRequireKickReason() {
-        return requireKickReason;
-    }
+        this.voteThresholdModifiersEnabled = Boolean.parseBoolean(props.getProperty("vote_threshold_modifiers_enabled", "true"));
 
-    public int getMaxReasonLength() {
-        return maxReasonLength;
-    }
+        double lightModifier = DEFAULT_LIGHT_MODIFIER;
+        try {
+            lightModifier = Double.parseDouble(props.getProperty("light_vote_modifier", String.valueOf(DEFAULT_LIGHT_MODIFIER)));
+            if (lightModifier < 1.0 || lightModifier > 3.0) {
+                lightModifier = DEFAULT_LIGHT_MODIFIER;
+            }
+        } catch (NumberFormatException e) {
+            lightModifier = DEFAULT_LIGHT_MODIFIER;
+        }
+        this.lightVoteModifier = lightModifier;
 
-    public boolean isProtectionEnabled() {
-        return protectionEnabled;
-    }
+        double heavyModifier = DEFAULT_HEAVY_MODIFIER;
+        try {
+            heavyModifier = Double.parseDouble(props.getProperty("heavy_vote_modifier", String.valueOf(DEFAULT_HEAVY_MODIFIER)));
+            if (heavyModifier < 1.0 || heavyModifier > 5.0) {
+                heavyModifier = DEFAULT_HEAVY_MODIFIER;
+            }
+        } catch (NumberFormatException e) {
+            heavyModifier = DEFAULT_HEAVY_MODIFIER;
+        }
+        this.heavyVoteModifier = heavyModifier;
 
-    public int getProtectionDurationSeconds() {
-        return protectionDurationSeconds;
+        int lightThreshold = DEFAULT_LIGHT_MODIFIER_THRESHOLD;
+        try {
+            lightThreshold = Integer.parseInt(props.getProperty("light_modifier_threshold", String.valueOf(DEFAULT_LIGHT_MODIFIER_THRESHOLD)));
+            if (lightThreshold < 1) {
+                lightThreshold = DEFAULT_LIGHT_MODIFIER_THRESHOLD;
+            }
+        } catch (NumberFormatException e) {
+            lightThreshold = DEFAULT_LIGHT_MODIFIER_THRESHOLD;
+        }
+        this.lightModifierThreshold = lightThreshold;
+
+        int heavyThreshold = DEFAULT_HEAVY_MODIFIER_THRESHOLD;
+        try {
+            heavyThreshold = Integer.parseInt(props.getProperty("heavy_modifier_threshold", String.valueOf(DEFAULT_HEAVY_MODIFIER_THRESHOLD)));
+            if (heavyThreshold < 1) {
+                heavyThreshold = DEFAULT_HEAVY_MODIFIER_THRESHOLD;
+            }
+        } catch (NumberFormatException e) {
+            heavyThreshold = DEFAULT_HEAVY_MODIFIER_THRESHOLD;
+        }
+        this.heavyModifierThreshold = heavyThreshold;
+
+        int cleanupDays = DEFAULT_DATA_CLEANUP_DAYS;
+        try {
+            cleanupDays = Integer.parseInt(props.getProperty("data_cleanup_days", String.valueOf(DEFAULT_DATA_CLEANUP_DAYS)));
+            if (cleanupDays < 1) {
+                cleanupDays = DEFAULT_DATA_CLEANUP_DAYS;
+            }
+        } catch (NumberFormatException e) {
+            cleanupDays = DEFAULT_DATA_CLEANUP_DAYS;
+        }
+        this.dataCleanupDays = cleanupDays;
     }
 
     public void updateProperties(Properties props) {
@@ -203,7 +304,48 @@ public class VoteKickConfig {
         props.setProperty("notify_target_on_vote_start", Boolean.toString(notifyPlayerOnVoteStart));
         props.setProperty("require_kick_reason", Boolean.toString(requireKickReason));
         props.setProperty("max_reason_length", Integer.toString(maxReasonLength));
-        props.setProperty("protection_enabled", Boolean.toString(protectionEnabled));
-        props.setProperty("protection_duration_seconds", Integer.toString(protectionDurationSeconds));
+        props.setProperty("target_cooldown_seconds", Integer.toString(targetCooldownSeconds));
+
+        props.setProperty("new_player_protection_enabled", Boolean.toString(newPlayerProtectionEnabled));
+        props.setProperty("new_player_protection_duration", Integer.toString(newPlayerProtectionDuration));
+        props.setProperty("post_kick_protection_enabled", Boolean.toString(postKickProtectionEnabled));
+        props.setProperty("post_kick_protection_duration", Integer.toString(postKickProtectionDuration));
+        props.setProperty("extended_kick_protection_duration", Integer.toString(extendedKickProtectionDuration));
+        props.setProperty("harassment_detection_enabled", Boolean.toString(harassmentDetectionEnabled));
+        props.setProperty("harassment_kick_threshold", Integer.toString(harassmentKickThreshold));
+        props.setProperty("harassment_time_window", Integer.toString(harassmentTimeWindow));
+        props.setProperty("vote_threshold_modifiers_enabled", Boolean.toString(voteThresholdModifiersEnabled));
+        props.setProperty("light_vote_modifier", Double.toString(lightVoteModifier));
+        props.setProperty("heavy_vote_modifier", Double.toString(heavyVoteModifier));
+        props.setProperty("light_modifier_threshold", Integer.toString(lightModifierThreshold));
+        props.setProperty("heavy_modifier_threshold", Integer.toString(heavyModifierThreshold));
+        props.setProperty("data_cleanup_days", Integer.toString(dataCleanupDays));
     }
+
+    // basic vote getters
+    public int getVoteDurationSeconds() { return voteDurationSeconds; }
+    public int getCooldownSeconds() { return cooldownSeconds; }
+    public double getVotePassPercentage() { return votePassPercentage; }
+    public int getMinimumPlayers() { return minimumPlayers; }
+    public boolean isAllowSelfVoting() { return allowSelfVoting; }
+    public boolean isNotifyPlayerOnVoteStart() { return notifyPlayerOnVoteStart; }
+    public boolean isRequireKickReason() { return requireKickReason; }
+    public int getMaxReasonLength() { return maxReasonLength; }
+    public int getTargetCooldownSeconds() { return targetCooldownSeconds; }
+
+    // protection system getters
+    public boolean isNewPlayerProtectionEnabled() { return newPlayerProtectionEnabled; }
+    public int getNewPlayerProtectionDuration() { return newPlayerProtectionDuration; }
+    public boolean isPostKickProtectionEnabled() { return postKickProtectionEnabled; }
+    public int getPostKickProtectionDuration() { return postKickProtectionDuration; }
+    public int getExtendedKickProtectionDuration() { return extendedKickProtectionDuration; }
+    public boolean isHarassmentDetectionEnabled() { return harassmentDetectionEnabled; }
+    public int getHarassmentKickThreshold() { return harassmentKickThreshold; }
+    public int getHarassmentTimeWindow() { return harassmentTimeWindow; }
+    public boolean isVoteThresholdModifiersEnabled() { return voteThresholdModifiersEnabled; }
+    public double getLightVoteModifier() { return lightVoteModifier; }
+    public double getHeavyVoteModifier() { return heavyVoteModifier; }
+    public int getLightModifierThreshold() { return lightModifierThreshold; }
+    public int getHeavyModifierThreshold() { return heavyModifierThreshold; }
+    public int getDataCleanupDays() { return dataCleanupDays; }
 }

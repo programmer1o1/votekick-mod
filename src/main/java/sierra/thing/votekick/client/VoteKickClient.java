@@ -1,4 +1,4 @@
-// VoteKickClient.java (complete sound filtering)
+// VoteKickClient.java
 package sierra.thing.votekick.client;
 
 import com.mojang.blaze3d.platform.InputConstants;

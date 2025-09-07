@@ -126,8 +126,7 @@ public class VoteSession {
      */
     private static void startTargetCooldown(UUID initiatorUUID, UUID targetUUID) {
         String key = initiatorUUID.toString() + ":" + targetUUID.toString();
-        // 5 minute cooldown for voting same person
-        long cooldownMs = 300_000;
+        long cooldownMs = VoteKickMod.getConfig().getTargetCooldownSeconds() * 1000L;
         targetVoteCooldowns.put(key, System.currentTimeMillis() + cooldownMs);
     }
 

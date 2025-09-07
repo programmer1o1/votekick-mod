@@ -104,7 +104,6 @@ public class VoteKickCommand {
                 return 0;
             }
 
-            // check if target is protected
             PlayerProtectionManager protectionManager = VoteKickMod.getProtectionManager();
             if (protectionManager.isProtected(target.getUUID())) {
                 int remaining = protectionManager.getRemainingProtectionTime(target.getUUID());
@@ -112,14 +111,12 @@ public class VoteKickCommand {
                 return 0;
             }
 
-            // check cooldowns
             if (VoteSession.isOnCooldown(player.getUUID())) {
                 int remainingSeconds = VoteSession.getRemainingCooldown(player.getUUID());
                 sendError(player, "You must wait " + remainingSeconds + " seconds before starting another vote");
                 return 0;
             }
 
-            // check target-specific cooldown to prevent harassment
             if (VoteSession.isTargetOnCooldown(player.getUUID(), target.getUUID())) {
                 int remainingSeconds = VoteSession.getRemainingTargetCooldown(player.getUUID(), target.getUUID());
                 sendError(player, "You must wait " + remainingSeconds + " seconds before voting this player again");
@@ -138,11 +135,15 @@ public class VoteKickCommand {
                 return 0;
             }
 
-            // check if player has been kicked too many times recently
-            int recentKicks = protectionManager.getRecentKickCount(target.getUUID(), 3600_000); // last hour
-            if (recentKicks >= 3) {
-                sendError(player, "This player has been kicked " + recentKicks + " times recently. Please wait before starting another vote.");
-                return 0;
+            if (VoteKickMod.getConfig().isHarassmentDetectionEnabled()) {
+                int timeWindow = VoteKickMod.getConfig().getHarassmentTimeWindow();
+                int recentKicks = protectionManager.getRecentKickCount(target.getUUID(), timeWindow * 1000L);
+                int threshold = VoteKickMod.getConfig().getHarassmentKickThreshold();
+
+                if (recentKicks >= threshold) {
+                    sendError(player, "This player has been kicked " + recentKicks + " times recently. Please wait before starting another vote.");
+                    return 0;
+                }
             }
 
             VoteSession session = new VoteSession(
