@@ -1,3 +1,4 @@
+// VoteKickClient.java (complete sound filtering)
 package sierra.thing.votekick.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
@@ -12,29 +13,25 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundSource;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sierra.thing.votekick.VoteKickMod;
+import sierra.thing.votekick.client.config.ClientConfig;
 
 import java.util.concurrent.CompletableFuture;
 
-/**
- * Client-side mod entry point.
- * Handles the UI, keybinds, and networking with server.
- */
 public class VoteKickClient implements ClientModInitializer {
     private static final Logger LOGGER = LoggerFactory.getLogger(VoteKickMod.MOD_ID + "-client");
 
-    // Made public so the mixin can see them
-    // TODO: Maybe there's a cleaner way to do this?
     public static KeyMapping voteYesKey;
     public static KeyMapping voteNoKey;
 
-    // Set when player votes so they can't spam votes
     private static boolean hasVoted = false;
+    private static ClientConfig clientConfig;
 
-    // Channel identifiers
     private static final ResourceLocation SHOW_VOTE_PANEL = new ResourceLocation(VoteKickMod.MOD_ID, "show_vote_panel");
     private static final ResourceLocation UPDATE_VOTE_PANEL = new ResourceLocation(VoteKickMod.MOD_ID, "update_vote_panel");
     private static final ResourceLocation HIDE_VOTE_PANEL = new ResourceLocation(VoteKickMod.MOD_ID, "hide_vote_panel");
@@ -44,30 +41,19 @@ public class VoteKickClient implements ClientModInitializer {
     public void onInitializeClient() {
         LOGGER.info("Initializing VoteKick client v{}", VoteKickMod.VERSION);
 
-        // Set up the UI
+        clientConfig = new ClientConfig();
+        clientConfig.load();
+
         VoteKickHud.init();
-
-        // Setup keybinds
         registerKeyBindings();
-
-        // Tell server we have the mod when connecting
         registerModPresenceHandler();
-
-        // Set up packet handling
         registerNetworkHandlers();
-
-        // Handle disconnects etc.
         registerEventHandlers();
 
-        LOGGER.info("VoteKick client initialized - vote keys can be rebound in Controls menu");
+        LOGGER.info("VoteKick client initialized");
     }
 
-    /**
-     * Sets up F1/F2 as default vote keys.
-     * Players can rebind these in options.
-     */
     private void registerKeyBindings() {
-        // Originally used J/K but people complained
         voteYesKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
                 "key.votekick.vote_yes",
                 InputConstants.Type.KEYSYM,
@@ -83,10 +69,6 @@ public class VoteKickClient implements ClientModInitializer {
         ));
     }
 
-    /**
-     * Sends vote to server.
-     * Called by the keyboard mixin when F1/F2 is pressed.
-     */
     public static void castVote(boolean voteYes) {
         if (!VoteKickHud.isVotePanelShowing()) {
             return;
@@ -95,25 +77,28 @@ public class VoteKickClient implements ClientModInitializer {
         Minecraft client = Minecraft.getInstance();
         if (client.player == null) return;
 
-        // Prevent double votes
         if (VoteKickHud.hasPlayerVoted()) {
             client.player.displayClientMessage(
                     Component.literal("You have already voted!"),
-                    true // Overlay message
+                    true
             );
             return;
         }
 
-        // Update UI to show they voted
         VoteKickHud.markPlayerVoted();
 
-        // Show a message in chat
         client.player.displayClientMessage(
                 Component.literal("You voted " + (voteYes ? "YES" : "NO")),
                 false
         );
 
-        // Tell the server
+        // play local sound if enabled
+        if (clientConfig.isSoundEnabled()) {
+            playLocalSound(voteYes ? net.minecraft.sounds.SoundEvents.UI_BUTTON_CLICK.value() :
+                            net.minecraft.sounds.SoundEvents.VILLAGER_NO,
+                    0.5f, voteYes ? 1.2f : 0.8f);
+        }
+
         try {
             LOGGER.debug("Sending vote: {}", voteYes ? "YES" : "NO");
             FriendlyByteBuf buf = PacketByteBufs.create();
@@ -129,16 +114,21 @@ public class VoteKickClient implements ClientModInitializer {
     }
 
     /**
-     * Resets vote flags when a vote ends
+     * play sound locally if sounds are enabled
      */
+    public static void playLocalSound(SoundEvent sound, float volume, float pitch) {
+        if (clientConfig != null && clientConfig.isSoundEnabled()) {
+            Minecraft client = Minecraft.getInstance();
+            if (client.player != null) {
+                client.player.playNotifySound(sound, SoundSource.MASTER, volume, pitch);
+            }
+        }
+    }
+
     public static void resetVoteState() {
         hasVoted = false;
     }
 
-    /**
-     * Server checks if we have the mod during login.
-     * This responds so we don't get kicked.
-     */
     private void registerModPresenceHandler() {
         ClientLoginNetworking.registerGlobalReceiver(
                 VoteKickMod.MOD_PRESENCE_CHANNEL,
@@ -149,29 +139,20 @@ public class VoteKickClient implements ClientModInitializer {
         );
     }
 
-    /**
-     * Handle client state changes - mostly cleanup
-     */
     private void registerEventHandlers() {
-        // When player leaves server, clean up the UI
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             LOGGER.debug("Client disconnected, cleaning up vote UI");
             VoteKickHud.onClientDisconnect();
             VoteKickHud.resetVoteState();
         });
 
-        // When vote UI disappears, reset vote state
         VoteKickHud.setOnHideListener(() -> {
             LOGGER.debug("Vote panel hidden, resetting vote state");
             VoteKickHud.resetVoteState();
         });
     }
 
-    /**
-     * Set up packet handlers for vote messages from server
-     */
     private void registerNetworkHandlers() {
-        // When server starts a vote
         ClientPlayNetworking.registerGlobalReceiver(
                 SHOW_VOTE_PANEL,
                 (client, handler, buf, responseSender) -> {
@@ -196,6 +177,9 @@ public class VoteKickClient implements ClientModInitializer {
                                     votesNeeded,
                                     isTarget
                             );
+
+                            // play notification sound only if enabled
+                            playLocalSound(net.minecraft.sounds.SoundEvents.NOTE_BLOCK_PLING.value(), 1.0f, 1.0f);
                         } catch (Exception e) {
                             LOGGER.error("Error showing vote panel", e);
                         }
@@ -203,7 +187,6 @@ public class VoteKickClient implements ClientModInitializer {
                 }
         );
 
-        // When vote count changes or time ticks down
         ClientPlayNetworking.registerGlobalReceiver(
                 UPDATE_VOTE_PANEL,
                 (client, handler, buf, responseSender) -> {
@@ -213,11 +196,7 @@ public class VoteKickClient implements ClientModInitializer {
 
                     client.execute(() -> {
                         try {
-                            VoteKickHud.updateVotePanel(
-                                    time,
-                                    yesVotes,
-                                    noVotes
-                            );
+                            VoteKickHud.updateVotePanel(time, yesVotes, noVotes);
                         } catch (Exception e) {
                             LOGGER.error("Error updating vote panel", e);
                         }
@@ -225,7 +204,6 @@ public class VoteKickClient implements ClientModInitializer {
                 }
         );
 
-        // When vote ends
         ClientPlayNetworking.registerGlobalReceiver(
                 HIDE_VOTE_PANEL,
                 (client, handler, buf, responseSender) -> {
@@ -239,5 +217,9 @@ public class VoteKickClient implements ClientModInitializer {
                     });
                 }
         );
+    }
+
+    public static ClientConfig getClientConfig() {
+        return clientConfig;
     }
 }

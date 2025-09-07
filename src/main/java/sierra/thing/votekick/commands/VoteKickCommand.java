@@ -1,3 +1,4 @@
+// VoteKickCommand.java
 package sierra.thing.votekick.commands;
 
 import com.mojang.brigadier.CommandDispatcher;
@@ -14,28 +15,23 @@ import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sierra.thing.votekick.VoteKickMod;
+import sierra.thing.votekick.protection.PlayerProtectionManager;
 import sierra.thing.votekick.vote.VoteSession;
 
 import java.util.Map;
 import java.util.UUID;
 
-/**
- * Command registration for /votekick and /vote.
- */
 public class VoteKickCommand {
     private static final Logger LOGGER = LoggerFactory.getLogger(VoteKickMod.MOD_ID);
 
-    // Some colors to make chat messages look nicer
     private static final TextColor ERROR_COLOR = TextColor.fromRgb(0xFF5555);
     private static final TextColor SUCCESS_COLOR = TextColor.fromRgb(0x55FF55);
     private static final TextColor HIGHLIGHT_COLOR = TextColor.fromRgb(0xFFFF55);
     private static final TextColor INFO_COLOR = TextColor.fromRgb(0xAAAAAA);
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
-        // Main votekick command
         LiteralArgumentBuilder<CommandSourceStack> voteKickCommand = Commands.literal("votekick");
 
-        // /votekick <player> <reason> - normal form with reason
         voteKickCommand.then(Commands.argument("target", EntityArgument.player())
                 .then(Commands.argument("reason", StringArgumentType.greedyString())
                         .executes(context -> startVoteKick(
@@ -46,8 +42,6 @@ public class VoteKickCommand {
                 )
         );
 
-        // Allow optional reason if disabled in config
-        // Originally wanted to make reason always optional but that might causes... grief votekicks or something
         if (!VoteKickMod.getConfig().isRequireKickReason()) {
             voteKickCommand.then(Commands.argument("target", EntityArgument.player())
                     .executes(context -> startVoteKick(
@@ -58,16 +52,11 @@ public class VoteKickCommand {
             );
         }
 
-        // Help text if just /votekick is run
         voteKickCommand.executes(context -> showVoteKickHelp(context.getSource()));
 
-        // Register the command
         dispatcher.register(voteKickCommand);
-
-        // Short version - who wants to type /votekick all the time?
         dispatcher.register(Commands.literal("vk").redirect(dispatcher.getRoot().getChild("votekick")));
 
-        // Vote commands for yes/no/status
         dispatcher.register(
                 Commands.literal("vote")
                         .then(Commands.literal("yes")
@@ -82,7 +71,6 @@ public class VoteKickCommand {
                         .executes(ctx -> showVoteHelp(ctx.getSource()))
         );
 
-        // Even shorter version - lazy players ftw
         dispatcher.register(Commands.literal("v")
                 .redirect(dispatcher.getRoot().getChild("vote")));
     }
@@ -91,52 +79,58 @@ public class VoteKickCommand {
         try {
             ServerPlayer player = source.getPlayerOrException();
 
-            // Make sure they provided a reason if required
             if (VoteKickMod.getConfig().isRequireKickReason() && (reason == null || reason.trim().isEmpty())) {
                 sendError(player, "You must provide a reason for the vote kick");
                 return 0;
             }
 
-            // Don't let people write essays for reasons
             int maxLength = VoteKickMod.getConfig().getMaxReasonLength();
             if (reason != null && reason.length() > maxLength) {
                 reason = reason.substring(0, maxLength) + "...";
             }
 
-            // Prevent self-votes (unless enabled in config)
-            // Some servers actually wanted this so players could leave gracefully?
             if (player.getUUID().equals(target.getUUID()) && !VoteKickMod.getConfig().isAllowSelfVoting()) {
                 sendError(player, "You cannot start a vote against yourself");
                 return 0;
             }
 
-            // No kicking the admins!
             if (source.getServer().getPlayerList().isOp(target.getGameProfile())) {
                 sendError(player, "You cannot vote to kick server operators");
                 return 0;
             }
 
-            // Also check permission level - allow for non-op elevated players
-            if (target.hasPermissions(2)) {  // Permission level 2 or higher
+            if (target.hasPermissions(2)) {
                 sendError(player, "This player cannot be vote-kicked");
                 return 0;
             }
 
-            // Check cooldown - avoids spam votes
+            // check if target is protected
+            PlayerProtectionManager protectionManager = VoteKickMod.getProtectionManager();
+            if (protectionManager.isProtected(target.getUUID())) {
+                int remaining = protectionManager.getRemainingProtectionTime(target.getUUID());
+                sendError(player, "This player has immunity for " + remaining + " more seconds");
+                return 0;
+            }
+
+            // check cooldowns
             if (VoteSession.isOnCooldown(player.getUUID())) {
                 int remainingSeconds = VoteSession.getRemainingCooldown(player.getUUID());
                 sendError(player, "You must wait " + remainingSeconds + " seconds before starting another vote");
                 return 0;
             }
 
-            // Only one vote at a time
-            // TODO: Maybe allow multiple votes in the future?
+            // check target-specific cooldown to prevent harassment
+            if (VoteSession.isTargetOnCooldown(player.getUUID(), target.getUUID())) {
+                int remainingSeconds = VoteSession.getRemainingTargetCooldown(player.getUUID(), target.getUUID());
+                sendError(player, "You must wait " + remainingSeconds + " seconds before voting this player again");
+                return 0;
+            }
+
             if (!VoteKickMod.getActiveVotes().isEmpty()) {
                 sendError(player, "A vote is already in progress");
                 return 0;
             }
 
-            // Check for enough players
             int playerCount = source.getServer().getPlayerList().getPlayerCount();
             if (playerCount < VoteKickMod.getConfig().getMinimumPlayers()) {
                 sendError(player, "At least " + VoteKickMod.getConfig().getMinimumPlayers() +
@@ -144,7 +138,13 @@ public class VoteKickCommand {
                 return 0;
             }
 
-            // All checks passed, create new vote
+            // check if player has been kicked too many times recently
+            int recentKicks = protectionManager.getRecentKickCount(target.getUUID(), 3600_000); // last hour
+            if (recentKicks >= 3) {
+                sendError(player, "This player has been kicked " + recentKicks + " times recently. Please wait before starting another vote.");
+                return 0;
+            }
+
             VoteSession session = new VoteSession(
                     player.getUUID(),
                     target.getUUID(),
@@ -155,10 +155,8 @@ public class VoteKickCommand {
                     VoteKickMod.getConfig().getVoteDurationSeconds()
             );
 
-            // Start the vote
             VoteKickMod.addVote(target.getUUID(), session);
 
-            // Let everyone know
             Component announcement = Component.literal(
                             player.getGameProfile().getName() + " started a vote to kick " +
                                     target.getGameProfile().getName())
@@ -172,7 +170,6 @@ public class VoteKickCommand {
             source.getServer().getPlayerList().broadcastSystemMessage(announcement, false);
             source.getServer().getPlayerList().broadcastSystemMessage(reasonText, false);
 
-            // Remind them how to vote
             source.getServer().getPlayerList().broadcastSystemMessage(
                     Component.literal("Type /vote yes or /vote no to cast your vote")
                             .setStyle(Style.EMPTY.withColor(INFO_COLOR)),
@@ -181,7 +178,6 @@ public class VoteKickCommand {
 
             return 1;
         } catch (Exception e) {
-            // Log it for debugging
             LOGGER.error("Error starting vote", e);
             sendError(source, "An error occurred while starting the vote");
             return 0;
@@ -198,22 +194,18 @@ public class VoteKickCommand {
                 return 0;
             }
 
-            // Get active vote - there's only one
             VoteSession session = activeVotes.values().iterator().next();
 
-            // Target can't vote on their own kick
             if (player.getUUID().equals(session.getTargetUUID())) {
                 sendError(player, "You cannot vote on your own kick");
                 return 0;
             }
 
-            // Initiator already voted yes
             if (player.getUUID().equals(session.getInitiatorUUID())) {
                 sendSuccess(player, "Your vote has been counted (you started this vote)");
                 return 1;
             }
 
-            // Cast the vote
             if (session.castVote(player, inFavor)) {
                 String voteText = inFavor ? "YES" : "NO";
                 player.sendSystemMessage(Component.literal("You voted " + voteText)
@@ -262,7 +254,6 @@ public class VoteKickCommand {
         source.sendSuccess(() -> Component.literal("===== VoteKick Help =====")
                 .setStyle(Style.EMPTY.withColor(HIGHLIGHT_COLOR)), false);
 
-        // Show whether reason is required
         if (VoteKickMod.getConfig().isRequireKickReason()) {
             source.sendSuccess(() -> Component.literal("/votekick <player> <reason> - Start a vote to kick a player"), false);
             source.sendSuccess(() -> Component.literal("/vk <player> <reason> - Shorthand for /votekick"), false);
@@ -286,7 +277,6 @@ public class VoteKickCommand {
         return 1;
     }
 
-    // Helper methods for message formatting
     private static void sendError(CommandSourceStack source, String message) {
         source.sendFailure(Component.literal(message).setStyle(Style.EMPTY.withColor(ERROR_COLOR)));
     }
