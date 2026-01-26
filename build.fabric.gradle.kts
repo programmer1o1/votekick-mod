@@ -63,7 +63,7 @@ tasks.matching { it.name.startsWith("ksp") }.configureEach {
 
 repositories {
 	mavenCentral()
-	strictMaven("https://maven.terraformersmc.com/", "com.terraformersmc") { name = "TerraformersMC" }
+	strictMaven("https://maven.terraformersmc.com/releases/", "com.terraformersmc") { name = "TerraformersMC" }  // ← Add /releases/
 	strictMaven("https://api.modrinth.com/maven", "maven.modrinth") { name = "Modrinth" }
 	strictMaven("https://maven.nucleoid.xyz/", "eu.pb4") { name = "Nucleoid" }
 }
