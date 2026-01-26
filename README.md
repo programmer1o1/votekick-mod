@@ -1,3 +1,4 @@
+# DEPRECATED, PLEASE GO TO MASTER BRANCH!
 # VoteKick
 
 A democratic voting system that allows players to collectively remove disruptive players from the server through a clean, fair voting process.
