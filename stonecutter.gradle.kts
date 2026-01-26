@@ -10,7 +10,14 @@ plugins {
 	alias(libs.plugins.fletching.table).apply(false)
 }
 
-stonecutter active file(".sc_active_version")
+val activeVersionFile = file(".sc_active_version")
+if (!activeVersionFile.exists()) {
+	val defaultVersion = providers.gradleProperty("stonecutter.active")
+		.orElse("1.21.4-fabric")
+		.get()
+	activeVersionFile.writeText(defaultVersion + System.lineSeparator())
+}
+stonecutter active activeVersionFile
 
 for (version in stonecutter.versions.map { it.version }.distinct()) tasks.register("publish$version") {
 	group = "publishing"
