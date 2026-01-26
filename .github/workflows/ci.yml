@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build all variants
+        run: |
+          ./gradlew \
+            1.20.1-fabric:build \
+            1.20.4-fabric:build \
+            1.20.4-neoforge:build \
+            1.20.6-fabric:build \
+            1.20.6-neoforge:build \
+            1.21.1-fabric:build \
+            1.21.1-neoforge:build \
+            1.21.4-fabric:build \
+            1.21.4-neoforge:build \
+            1.21.6-fabric:build \
+            1.21.6-neoforge:build \
+            1.21.8-fabric:build \
+            1.21.8-neoforge:build \
+            1.21.9-fabric:build \
+            1.21.9-neoforge:build \
+            1.21.10-fabric:build \
+            1.21.10-neoforge:build \
+            1.21.11-fabric:build \
+            1.21.11-neoforge:build \
+            --console=plain --no-daemon
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: votekick-jars
+          path: |
+            versions/**/build/libs/*.jar
+            build/libs/**/*.jar
+            !**/*-sources.jar
+            !**/*-javadoc.jar

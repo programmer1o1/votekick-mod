@@ -229,7 +229,11 @@ public class VoteSession {
 
         playerVotes.put(playerUUID, inFavor);
 
+        //? if >=1.21.9 {
+        /*MinecraftServer server = player.level().getServer();
+        *///?} else {
         MinecraftServer server = player.getServer();
+        //?}
         if (server != null) {
             // vote sounds are now handled client-side when the vote is cast
             // no server-side sounds needed here
@@ -254,34 +258,62 @@ public class VoteSession {
             return;
         }
 
+        VoteOutcome outcome = hasEnoughVotes() ? VoteOutcome.PASSED : VoteOutcome.FAILED;
+        endVote(server, outcome, null, null, true);
+    }
+
+    public void endVote(MinecraftServer server, VoteOutcome outcome, String endedBy, String overrideMessage, boolean applyCooldowns) {
+        if (server == null || hasPlayedEndSound) {
+            return;
+        }
+
         hasPlayedEndSound = true;
-        boolean voteSucceeded = hasEnoughVotes();
 
         // result sounds are handled client-side when the panel is hidden
         // no need for server-side sounds
-
         VoteKickNetworking.broadcastHideVotePanel(server.getPlayerList().getPlayers());
 
-        broadcastResult(server, voteSucceeded);
+        broadcastResult(server, outcome, endedBy, overrideMessage);
 
-        if (voteSucceeded && !kickScheduled) {
+        if (outcome.shouldKick() && !kickScheduled) {
             scheduleKick(server);
         }
 
-        // cooldowns for anti-spam
-        startCooldown(initiatorUUID);
-        startTargetCooldown(initiatorUUID, targetUUID);
+        VoteKickMod.getHistoryManager().recordSession(this, outcome, endedBy);
+
+        if (applyCooldowns) {
+            // cooldowns for anti-spam
+            startCooldown(initiatorUUID);
+            startTargetCooldown(initiatorUUID, targetUUID);
+        }
     }
 
-    private void broadcastResult(MinecraftServer server, boolean voteSucceeded) {
-        String resultText = voteSucceeded ?
-                "Vote passed! Player " + targetName + " will be kicked. Reason: " + kickReason :
-                "Vote failed! Not enough votes to kick " + targetName + ". Reason was: " + kickReason;
+    private void broadcastResult(MinecraftServer server, VoteOutcome outcome, String endedBy, String overrideMessage) {
+        String resultText;
+        if (overrideMessage != null && !overrideMessage.isEmpty()) {
+            resultText = overrideMessage;
+        } else {
+            switch (outcome) {
+                case PASSED -> resultText = "Vote passed! Player " + targetName + " will be kicked. Reason: " + kickReason;
+                case FAILED -> resultText = "Vote failed! Not enough votes to kick " + targetName + ". Reason was: " + kickReason;
+                case FORCED_PASS -> resultText = "Vote force-passed by " + formatActor(endedBy) +
+                        ". " + targetName + " will be kicked. Reason: " + kickReason;
+                case CANCELED -> resultText = "Vote canceled by " + formatActor(endedBy);
+                default -> resultText = "Vote ended.";
+            }
+        }
 
         Component resultMessage = Component.literal(resultText)
-                .setStyle(Style.EMPTY.withColor(voteSucceeded ? COLOR_YES : COLOR_NO));
+                .setStyle(Style.EMPTY.withColor(outcome.shouldKick() ? COLOR_YES : COLOR_NO));
 
         server.getPlayerList().broadcastSystemMessage(resultMessage, false);
+    }
+
+    private String formatActor(String endedBy) {
+        if (endedBy == null || endedBy.isBlank()) {
+            return "an administrator";
+        }
+        return endedBy;
     }
 
     private void scheduleKick(MinecraftServer server) {
@@ -428,6 +460,10 @@ public class VoteSession {
 
     public int getTotalVotesNeeded() {
         return totalVotesNeeded;
+    }
+
+    public int getTotalEligibleVoters() {
+        return totalEligibleVoters;
     }
 
     public int getSecondsRemaining() {

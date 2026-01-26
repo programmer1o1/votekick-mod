@@ -2,6 +2,7 @@
 package sierra.thing.votekick.commands;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -15,9 +16,16 @@ import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sierra.thing.votekick.VoteKickMod;
+import sierra.thing.votekick.history.VoteHistoryEntry;
+import sierra.thing.votekick.history.VoteHistoryManager;
+import sierra.thing.votekick.permissions.VoteKickPermissions;
 import sierra.thing.votekick.protection.PlayerProtectionManager;
+import sierra.thing.votekick.vote.VoteOutcome;
 import sierra.thing.votekick.vote.VoteSession;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.UUID;
 
@@ -28,6 +36,9 @@ public class VoteKickCommand {
     private static final TextColor SUCCESS_COLOR = TextColor.fromRgb(0x55FF55);
     private static final TextColor HIGHLIGHT_COLOR = TextColor.fromRgb(0xFFFF55);
     private static final TextColor INFO_COLOR = TextColor.fromRgb(0xAAAAAA);
+    private static final int HISTORY_PAGE_SIZE = 5;
+    private static final DateTimeFormatter HISTORY_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         LiteralArgumentBuilder<CommandSourceStack> voteKickCommand = Commands.literal("votekick");
@@ -57,6 +68,27 @@ public class VoteKickCommand {
         dispatcher.register(voteKickCommand);
         dispatcher.register(Commands.literal("vk").redirect(dispatcher.getRoot().getChild("votekick")));
 
+        LiteralArgumentBuilder<CommandSourceStack> adminCommand = Commands.literal("votekick-admin")
+                .requires(VoteKickPermissions::canAdmin)
+                .then(Commands.literal("cancel")
+                        .executes(context -> cancelVote(context.getSource()))
+                )
+                .then(Commands.literal("force")
+                        .executes(context -> forceVote(context.getSource()))
+                )
+                .then(Commands.literal("reload")
+                        .executes(context -> reloadConfig(context.getSource()))
+                )
+                .then(Commands.literal("history")
+                        .executes(context -> showHistory(context.getSource(), 1))
+                        .then(Commands.argument("page", IntegerArgumentType.integer(1))
+                                .executes(context -> showHistory(context.getSource(),
+                                        IntegerArgumentType.getInteger(context, "page")))
+                        )
+                );
+
+        dispatcher.register(adminCommand);
+
         dispatcher.register(
                 Commands.literal("vote")
                         .then(Commands.literal("yes")
@@ -79,6 +111,11 @@ public class VoteKickCommand {
         try {
             ServerPlayer player = source.getPlayerOrException();
 
+            if (!VoteKickPermissions.canStartVote(player)) {
+                sendError(player, "You do not have permission to start vote kicks");
+                return 0;
+            }
+
             if (VoteKickMod.getConfig().isRequireKickReason() && (reason == null || reason.trim().isEmpty())) {
                 sendError(player, "You must provide a reason for the vote kick");
                 return 0;
@@ -94,12 +131,7 @@ public class VoteKickCommand {
                 return 0;
             }
 
-            if (source.getServer().getPlayerList().isOp(target.getGameProfile())) {
-                sendError(player, "You cannot vote to kick server operators");
-                return 0;
-            }
-
-            if (target.hasPermissions(2)) {
+            if (VoteKickPermissions.isExempt(target)) {
                 sendError(player, "This player cannot be vote-kicked");
                 return 0;
             }
@@ -149,8 +181,8 @@ public class VoteKickCommand {
             VoteSession session = new VoteSession(
                     player.getUUID(),
                     target.getUUID(),
-                    player.getGameProfile().getName(),
-                    target.getGameProfile().getName(),
+                    VoteKickMod.profileName(player.getGameProfile()),
+                    VoteKickMod.profileName(target.getGameProfile()),
                     reason,
                     playerCount,
                     VoteKickMod.getConfig().getVoteDurationSeconds()
@@ -159,8 +191,8 @@ public class VoteKickCommand {
             VoteKickMod.addVote(target.getUUID(), session);
 
             Component announcement = Component.literal(
-                            player.getGameProfile().getName() + " started a vote to kick " +
-                                    target.getGameProfile().getName())
+                            VoteKickMod.profileName(player.getGameProfile()) + " started a vote to kick " +
+                                    VoteKickMod.profileName(target.getGameProfile()))
                     .setStyle(Style.EMPTY.withColor(HIGHLIGHT_COLOR).withBold(true));
 
             Component reasonText = Component.literal(
@@ -186,8 +218,16 @@ public class VoteKickCommand {
     }
 
     private static int castVote(CommandSourceStack source, boolean inFavor) throws CommandSyntaxException {
+        return castVote(source.getPlayerOrException(), inFavor);
+    }
+
+    public static int castVote(ServerPlayer player, boolean inFavor) {
         try {
-            ServerPlayer player = source.getPlayerOrException();
+            if (!VoteKickPermissions.canVote(player)) {
+                sendError(player, "You do not have permission to vote");
+                return 0;
+            }
+
             Map<UUID, VoteSession> activeVotes = VoteKickMod.getActiveVotes();
 
             if (activeVotes.isEmpty()) {
@@ -212,13 +252,13 @@ public class VoteKickCommand {
                 player.sendSystemMessage(Component.literal("You voted " + voteText)
                         .setStyle(Style.EMPTY.withColor(inFavor ? SUCCESS_COLOR : ERROR_COLOR)));
                 return 1;
-            } else {
-                sendError(player, "You have already voted in this session");
-                return 0;
             }
+
+            sendError(player, "You have already voted in this session");
+            return 0;
         } catch (Exception e) {
             LOGGER.error("Error casting vote", e);
-            sendError(source, "An error occurred while casting your vote");
+            sendError(player, "An error occurred while casting your vote");
             return 0;
         }
     }
@@ -265,6 +305,10 @@ public class VoteKickCommand {
 
         source.sendSuccess(() -> Component.literal("Use /vote yes or /vote no to vote on active kicks"), false);
         source.sendSuccess(() -> Component.literal("Use /vote status to check the current vote"), false);
+        if (VoteKickPermissions.canAdmin(source)) {
+            source.sendSuccess(() -> Component.literal("Admin: /votekick-admin <cancel|force|reload|history>")
+                    .setStyle(Style.EMPTY.withColor(INFO_COLOR)), false);
+        }
         return 1;
     }
 
@@ -276,6 +320,103 @@ public class VoteKickCommand {
         source.sendSuccess(() -> Component.literal("/vote status - Show current vote status"), false);
         source.sendSuccess(() -> Component.literal("/v yes, /v no - Shorthand commands"), false);
         return 1;
+    }
+
+    private static int cancelVote(CommandSourceStack source) {
+        try {
+            if (VoteKickMod.getActiveVotes().isEmpty()) {
+                sendInfo(source, "There is no vote in progress");
+                return 0;
+            }
+
+            VoteSession session = VoteKickMod.getActiveVotes().values().iterator().next();
+            String actorName = getActorName(source);
+            session.endVote(source.getServer(), VoteOutcome.CANCELED, actorName, null, false);
+            VoteKickMod.removeVote(session.getTargetUUID());
+
+            return 1;
+        } catch (Exception e) {
+            LOGGER.error("Error canceling vote", e);
+            sendError(source, "An error occurred while canceling the vote");
+            return 0;
+        }
+    }
+
+    private static int forceVote(CommandSourceStack source) {
+        try {
+            if (VoteKickMod.getActiveVotes().isEmpty()) {
+                sendInfo(source, "There is no vote in progress");
+                return 0;
+            }
+
+            VoteSession session = VoteKickMod.getActiveVotes().values().iterator().next();
+            String actorName = getActorName(source);
+            session.endVote(source.getServer(), VoteOutcome.FORCED_PASS, actorName, null, true);
+            VoteKickMod.removeVote(session.getTargetUUID());
+
+            return 1;
+        } catch (Exception e) {
+            LOGGER.error("Error forcing vote", e);
+            sendError(source, "An error occurred while forcing the vote");
+            return 0;
+        }
+    }
+
+    private static int reloadConfig(CommandSourceStack source) {
+        try {
+            VoteKickMod.reloadConfig();
+            sendInfo(source, "VoteKick configuration reloaded");
+            return 1;
+        } catch (Exception e) {
+            LOGGER.error("Error reloading config", e);
+            sendError(source, "An error occurred while reloading the config");
+            return 0;
+        }
+    }
+
+    private static int showHistory(CommandSourceStack source, int page) {
+        try {
+            if (!VoteKickMod.getConfig().isHistoryEnabled()) {
+                sendInfo(source, "Vote history is disabled in config");
+                return 0;
+            }
+
+            VoteHistoryManager history = VoteKickMod.getHistoryManager();
+            if (history.size() == 0) {
+                sendInfo(source, "No vote history recorded yet");
+                return 0;
+            }
+
+            int maxPage = history.getMaxPages(HISTORY_PAGE_SIZE);
+            int targetPage = Math.min(Math.max(page, 1), maxPage);
+
+            source.sendSuccess(() -> Component.literal("=== Vote History (page " + targetPage + "/" + maxPage + ") ===")
+                    .setStyle(Style.EMPTY.withColor(HIGHLIGHT_COLOR)), false);
+
+            for (VoteHistoryEntry entry : history.getEntriesPage(targetPage, HISTORY_PAGE_SIZE)) {
+                String time = HISTORY_TIME_FORMATTER.format(Instant.ofEpochMilli(entry.timestamp));
+                String outcomeLabel = entry.outcome != null ? entry.outcome.getLabel() : "Unknown";
+                String actorSuffix = entry.endedBy != null && !entry.endedBy.isBlank()
+                        ? " (by " + entry.endedBy + ")"
+                        : "";
+                String reason = truncate(entry.reason, 80);
+                String reasonPart = reason.isBlank() ? "" : " | reason: " + reason;
+
+                String line = "[" + time + "] " + outcomeLabel + actorSuffix +
+                        " | " + entry.initiatorName + " -> " + entry.targetName +
+                        " | yes:" + entry.yesVotes + " no:" + entry.noVotes +
+                        " needed:" + entry.votesNeeded +
+                        reasonPart;
+
+                source.sendSuccess(() -> Component.literal(line).setStyle(Style.EMPTY.withColor(INFO_COLOR)), false);
+            }
+
+            return 1;
+        } catch (Exception e) {
+            LOGGER.error("Error showing history", e);
+            sendError(source, "An error occurred while showing vote history");
+            return 0;
+        }
     }
 
     private static void sendError(CommandSourceStack source, String message) {
@@ -292,5 +433,31 @@ public class VoteKickCommand {
 
     private static void sendInfo(CommandSourceStack source, String message) {
         source.sendSuccess(() -> Component.literal(message).setStyle(Style.EMPTY.withColor(INFO_COLOR)), false);
+    }
+
+    private static String getActorName(CommandSourceStack source) {
+        if (source == null) {
+            return "Server";
+        }
+
+        if (source.getEntity() instanceof ServerPlayer player) {
+            return VoteKickMod.profileName(player.getGameProfile());
+        }
+
+        String name = source.getTextName();
+        return name == null || name.isBlank() ? "Server" : name;
+    }
+
+    private static String truncate(String value, int maxLength) {
+        if (value == null) {
+            return "";
+        }
+
+        String trimmed = value.trim();
+        if (trimmed.length() <= maxLength) {
+            return trimmed;
+        }
+
+        return trimmed.substring(0, Math.max(0, maxLength - 3)) + "...";
     }
 }

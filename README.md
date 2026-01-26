@@ -28,6 +28,16 @@ A democratic voting system that allows players to collectively remove disruptive
 /vote status
 ```
 
+### Admin Commands
+```
+/votekick-admin cancel
+/votekick-admin force
+/votekick-admin reload
+/votekick-admin history [page]
+```
+Requires the `votekick.admin` permission (or op level configured in `permissions_admin_default_level`).
+`cancel` ends the active vote without a kick; `force` ends it as passed.
+
 ## Configuration
 
 ### Server Configuration
@@ -49,6 +59,18 @@ vote_threshold_modifiers_enabled=true
 # Customization
 require_kick_reason=true
 allow_self_voting=false
+
+# Permissions (default op levels)
+permissions_enabled=true
+permissions_start_default_level=0
+permissions_vote_default_level=0
+permissions_admin_default_level=2
+permissions_exempt_default_level=2
+
+# Vote History
+vote_history_enabled=true
+vote_history_max_entries=200
+vote_history_retention_days=90
 ```
 
 ### Client Configuration
@@ -57,6 +79,35 @@ Customize your voting experience through:
 - **Properties File** - `config/votekick-client.properties` for manual editing
 
 Options include UI scaling, panel positioning, sound controls, and animation settings.
+
+## Permissions
+
+Permission nodes:
+- `votekick.start` — allow starting votes
+- `votekick.vote` — allow casting votes
+- `votekick.admin` — allow admin commands
+- `votekick.exempt` — exempt a player from being vote-kicked
+
+Defaults are controlled by `permissions_*_default_level` in the server config (0 = all, 2 = ops).
+If a permissions API is present (Fabric Permissions API or LuckPerms on Fabric/NeoForge), the nodes above are checked;
+otherwise the defaults apply.
+
+### LuckPerms setup
+
+- **Fabric**: install `LuckPerms` and `fabric-permissions-api` on the server.
+- **NeoForge**: install `LuckPerms` on the server.
+
+Example grants:
+```
+/lp group default permission set votekick.start true
+/lp group default permission set votekick.vote true
+/lp group mod permission set votekick.admin true
+/lp group mod permission set votekick.exempt true
+```
+
+## Vote History
+
+History is stored in `config/votekick_history.json` and follows the retention/max entry limits.
 
 ## Anti-Abuse Features
 
@@ -68,16 +119,16 @@ Options include UI scaling, panel positioning, sound controls, and animation set
 
 ## Requirements
 
-- **Fabric API** (required)
-- **ModMenu** (optional, for GUI configuration)
+- **Fabric**: Fabric API (required), ModMenu (optional for GUI configuration)
+- **NeoForge**: no extra dependencies
 - Must be installed on both client and server
 
-## Permissions
+## Default Behavior
 
-- Server operators and players with permission level 2+ cannot be vote-kicked
-- All other players can participate in voting (unless protected)
+- Server operators and players with permission level 2+ are exempt from being vote-kicked.
+- All other players can participate in voting (unless protected).
 
 ## Compatibility
 
-- Minecraft 1.21.4
-- Fabric Loader 0.16.10+
+- Minecraft 1.20.1 (Fabric only)
+- Minecraft 1.20.4, 1.20.6, 1.21.1, 1.21.4 (Fabric + NeoForge)

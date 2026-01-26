@@ -1,7 +1,6 @@
 // ClientConfig.java (Properties version)
 package sierra.thing.votekick.client.config;
 
-import net.fabricmc.loader.api.FabricLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sierra.thing.votekick.VoteKickMod;
@@ -30,7 +29,7 @@ public class ClientConfig {
     private final File configFile;
 
     public ClientConfig() {
-        File configDir = FabricLoader.getInstance().getConfigDir().toFile();
+        File configDir = VoteKickMod.platform().getConfigDir().toFile();
         this.configFile = new File(configDir, "votekick-client.properties");
     }
 

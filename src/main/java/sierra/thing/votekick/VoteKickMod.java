@@ -1,24 +1,29 @@
-// VoteKickMod.java
 package sierra.thing.votekick;
 
-import net.fabricmc.api.ModInitializer;
-import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.networking.v1.*;
-import net.fabricmc.loader.api.FabricLoader;
+import com.mojang.authlib.GameProfile;
+import com.mojang.brigadier.CommandDispatcher;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
+//? if >=1.21.11 {
+/*import net.minecraft.resources.Identifier;
+*///?} else {
 import net.minecraft.resources.ResourceLocation;
+//?}
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sierra.thing.votekick.commands.VoteKickCommand;
 import sierra.thing.votekick.config.VoteKickConfig;
-import sierra.thing.votekick.network.CastVotePayload;
-import sierra.thing.votekick.network.PayloadRegistry;
-import sierra.thing.votekick.network.VoteKickNetworking;
+import sierra.thing.votekick.history.VoteHistoryManager;
+import sierra.thing.votekick.platform.Platform;
+//? if fabric {
+import sierra.thing.votekick.platform.fabric.FabricPlatform;
+//?} else if neoforge {
+/*import sierra.thing.votekick.platform.neoforge.NeoforgePlatform;
+*///?}
 import sierra.thing.votekick.protection.PlayerProtectionManager;
+import sierra.thing.votekick.vote.VoteOutcome;
 import sierra.thing.votekick.vote.VoteSession;
 
 import java.io.File;
@@ -30,110 +35,100 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 
-public class VoteKickMod implements ModInitializer {
-    public static final String MOD_ID = "votekick";
-    public static final String VERSION = "2.0.0";
+public class VoteKickMod {
+    public static final String MOD_ID = /*$ mod_id*/ "votekick";
+    public static final String VERSION = /*$ mod_version*/ "3.0.0";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
-    public static final ResourceLocation MOD_PRESENCE_CHANNEL = ResourceLocation.fromNamespaceAndPath(MOD_ID, "presence");
+    //? if >=1.21.11 {
+    /*public static final Identifier MOD_PRESENCE_CHANNEL = Identifier.fromNamespaceAndPath(MOD_ID, "presence");
+    *///?} else if >=1.21 {
+    /*public static final ResourceLocation MOD_PRESENCE_CHANNEL = ResourceLocation.fromNamespaceAndPath(MOD_ID, "presence");
+    *///?} else {
+    public static final ResourceLocation MOD_PRESENCE_CHANNEL = new ResourceLocation(MOD_ID, "presence");
+    //?}
+
+    private static final Platform PLATFORM = createPlatformInstance();
 
     private static VoteKickConfig config;
     private static final Map<UUID, VoteSession> activeVotes = new HashMap<>();
     private static PlayerProtectionManager protectionManager;
+    private static VoteHistoryManager historyManager;
 
-    private static VoteKickMod instance;
-    private MinecraftServer server;
+    public static void init() {
+        LOGGER.info("VoteKick v{} loading on {}", VERSION, PLATFORM.loader());
 
-    @Override
-    public void onInitialize() {
-        LOGGER.info("VoteKick v{} loading", VERSION);
-
-        instance = this;
         loadConfig();
-
-        // init the protection system for anti-abuse
         protectionManager = new PlayerProtectionManager();
-
-        PayloadRegistry.register();
-        registerCommands();
-        registerEventHandlers();
-        registerNetworkHandlers();
+        historyManager = new VoteHistoryManager();
     }
 
-    private void registerCommands() {
-        CommandRegistrationCallback.EVENT.register((dispatcher, registry, environment) ->
-                VoteKickCommand.register(dispatcher)
-        );
+    public static Platform platform() {
+        return PLATFORM;
     }
 
-    private void registerEventHandlers() {
-        ServerLifecycleEvents.SERVER_STARTING.register(server -> {
-            this.setServer(server);
-            // load protection data when server starts
-            protectionManager.load();
-        });
+    public static String profileName(GameProfile profile) {
+        //? if >=1.21.9 {
+        /*return profile.name();
+        *///?} else {
+        return profile.getName();
+        //?}
+    }
 
-        ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
-            // save protection data when server stops
-            protectionManager.save();
-        });
+    public static void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
+        VoteKickCommand.register(dispatcher);
+    }
 
-        ServerTickEvents.END_SERVER_TICK.register(server -> {
-            // cleanup old protection entries
-            if (server.getTickCount() % 1200 == 0) { // every minute
-                protectionManager.cleanup();
+    public static void onServerStarting(MinecraftServer server) {
+        protectionManager.load();
+        historyManager.load();
+    }
+
+    public static void onServerStopping(MinecraftServer server) {
+        protectionManager.save();
+        historyManager.save();
+    }
+
+    public static void onServerTick(MinecraftServer server) {
+        if (server.getTickCount() % 1200 == 0) { // every minute
+            protectionManager.cleanup();
+        }
+
+        activeVotes.entrySet().removeIf(entry -> {
+            VoteSession session = entry.getValue();
+            session.tick();
+
+            if (session.hasEnded()) {
+                session.processResults(server);
+                return true;
             }
 
-            activeVotes.entrySet().removeIf(entry -> {
-                VoteSession session = entry.getValue();
-                session.tick();
-
-                if (session.hasEnded()) {
-                    session.processResults(server);
-                    return true;
-                }
-
-                session.updateVoteUI(server);
-                return false;
-            });
-        });
-
-        // handle player joins - check if they're protected
-        ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
-            ServerPlayer player = handler.getPlayer();
-
-            // new player protection - they get a grace period
-            if (!protectionManager.hasJoinedBefore(player.getUUID())) {
-                protectionManager.grantNewPlayerProtection(player.getUUID());
-                LOGGER.info("New player {} granted protection period", player.getGameProfile().getName());
-            }
-
-            // check if they're in protection period from recent kick
-            if (protectionManager.isProtected(player.getUUID())) {
-                int remaining = protectionManager.getRemainingProtectionTime(player.getUUID());
-                player.sendSystemMessage(Component.literal(
-                        "You have kick immunity for " + remaining + " seconds"
-                ));
-            }
-        });
-
-        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
-            handlePlayerDisconnect(handler.getPlayer(), server);
+            session.updateVoteUI(server);
+            return false;
         });
     }
 
-    private void handlePlayerDisconnect(ServerPlayer player, net.minecraft.server.MinecraftServer server) {
+    public static void onPlayerJoin(ServerPlayer player) {
+        if (!protectionManager.hasJoinedBefore(player.getUUID())) {
+            protectionManager.grantNewPlayerProtection(player.getUUID());
+            LOGGER.info("New player {} granted protection period", profileName(player.getGameProfile()));
+        }
+
+        if (protectionManager.isProtected(player.getUUID())) {
+            int remaining = protectionManager.getRemainingProtectionTime(player.getUUID());
+            player.sendSystemMessage(Component.literal(
+                    "You have kick immunity for " + remaining + " seconds"
+            ));
+        }
+    }
+
+    public static void onPlayerDisconnect(ServerPlayer player, MinecraftServer server) {
         UUID playerUUID = player.getUUID();
 
         VoteSession targetSession = activeVotes.get(playerUUID);
         if (targetSession != null) {
-            VoteKickNetworking.broadcastHideVotePanel(server.getPlayerList().getPlayers());
-
-            server.getPlayerList().broadcastSystemMessage(
-                    Component.literal("Vote canceled: " + targetSession.getTargetName() + " left the game"),
-                    false
-            );
-
+            targetSession.endVote(server, VoteOutcome.CANCELED, null,
+                    "Vote canceled: " + targetSession.getTargetName() + " left the game", false);
             activeVotes.remove(playerUUID);
             return;
         }
@@ -141,7 +136,7 @@ public class VoteKickMod implements ModInitializer {
         for (VoteSession session : activeVotes.values()) {
             if (session.hasPlayerVoted(playerUUID)) {
                 for (ServerPlayer p : server.getPlayerList().getPlayers()) {
-                    VoteKickNetworking.sendUpdateVotePanel(
+                    sierra.thing.votekick.network.VoteKickNetworking.sendUpdateVotePanel(
                             p,
                             session.getSecondsRemaining(),
                             session.getYesVotes(),
@@ -153,50 +148,8 @@ public class VoteKickMod implements ModInitializer {
         }
     }
 
-    private void registerNetworkHandlers() {
-        ResourceLocation CAST_VOTE = ResourceLocation.fromNamespaceAndPath(MOD_ID, "cast_vote");
-
-        ServerPlayNetworking.registerGlobalReceiver(CastVotePayload.TYPE, (payload, context) -> {
-            context.player().getServer().execute(() -> {
-                ServerPlayer player = context.player();
-
-                server.execute(() -> {
-                    if (activeVotes.isEmpty()) {
-                        player.sendSystemMessage(Component.literal("No vote in progress"));
-                        return;
-                    }
-
-                    VoteSession session = activeVotes.values().iterator().next();
-                    boolean success = session.castVote(player, payload.voteYes());
-
-                    if (!success) {
-                                player.sendSystemMessage(Component.literal("You've already voted or aren't eligible to vote"));
-                    }
-                });
-            });
-        });
-
-        setupModPresenceCheck();
-    }
-
-    private void setupModPresenceCheck() {
-        ServerLoginConnectionEvents.QUERY_START.register((handler, server, sender, sync) ->
-                sender.sendPacket(MOD_PRESENCE_CHANNEL, PacketByteBufs.create())
-        );
-
-        ServerLoginNetworking.registerGlobalReceiver(MOD_PRESENCE_CHANNEL, (server, handler, understood, buf, sync, sender) -> {
-            if (!understood) {
-                handler.disconnect(Component.literal(
-                        "This server requires the VoteKick mod.\n" +
-                                "Please install it to connect."
-                ));
-                LOGGER.info("Rejected {} - missing VoteKick mod", handler.getUserName());
-            }
-        });
-    }
-
-    private void loadConfig() {
-        File configDir = FabricLoader.getInstance().getConfigDir().toFile();
+    private static void loadConfig() {
+        File configDir = platform().getConfigDir().toFile();
         File configFile = new File(configDir, MOD_ID + ".properties");
         Properties props = new Properties();
 
@@ -219,12 +172,31 @@ public class VoteKickMod implements ModInitializer {
         }
     }
 
+    public static void reloadConfig() {
+        loadConfig();
+        if (historyManager != null) {
+            historyManager.load();
+        }
+    }
+
+    private static Platform createPlatformInstance() {
+        //? if fabric {
+        return new FabricPlatform();
+        //?} else if neoforge {
+        /*return new NeoforgePlatform();
+        *///?}
+    }
+
     public static VoteKickConfig getConfig() {
         return config;
     }
 
     public static PlayerProtectionManager getProtectionManager() {
         return protectionManager;
+    }
+
+    public static VoteHistoryManager getHistoryManager() {
+        return historyManager;
     }
 
     public static Map<UUID, VoteSession> getActiveVotes() {
@@ -241,17 +213,5 @@ public class VoteKickMod implements ModInitializer {
 
     public static boolean isVoteInProgress() {
         return !activeVotes.isEmpty();
-    }
-
-    public static VoteKickMod getInstance() {
-        return instance;
-    }
-
-    public void setServer(MinecraftServer server) {
-        this.server = server;
-    }
-
-    public MinecraftServer getServer() {
-        return server;
     }
 }

@@ -1,7 +1,7 @@
 {
   "required": true,
   "package": "sierra.thing.votekick.mixin",
-  "compatibilityLevel": "JAVA_21",
+  "compatibilityLevel": "${java}",
   "mixins": [
     "KeyboardHandlerMixin"
   ],

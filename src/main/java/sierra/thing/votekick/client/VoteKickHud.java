@@ -1,17 +1,15 @@
 // VoteKickHud.java
 package sierra.thing.votekick.client;
 
-import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 import sierra.thing.votekick.VoteKickMod;
 import sierra.thing.votekick.client.config.ClientConfig;
+import sierra.thing.votekick.client.config.VoteKickConfigScreen;
 
 import java.util.List;
 
@@ -66,18 +64,20 @@ public class VoteKickHud {
     private static List<FormattedCharSequence> wrappedReasonText = null;
     private static int cachedPanelHeight = BASE_MIN_PANEL_HEIGHT;
 
-    public static void init() {
-        HudRenderCallback.EVENT.register((guiGraphics, deltaTracker) -> {
-            updateAnimation(deltaTracker);
+    public static void onHudRender(GuiGraphics guiGraphics, float tickDelta) {
+        Minecraft client = Minecraft.getInstance();
+        if (client.screen != null) {
+            return;
+        }
 
-            if (showVotePanel || isAnimating) {
-                render(guiGraphics, deltaTracker);
-            }
-        });
+        updateAnimation(tickDelta);
+
+        if (showVotePanel || isAnimating) {
+            render(guiGraphics);
+        }
     }
 
-    private static void updateAnimation(DeltaTracker deltaTracker) {
-        float tickDelta = deltaTracker.getGameTimeDeltaPartialTick(false);
+    private static void updateAnimation(float tickDelta) {
         ClientConfig config = VoteKickClient.getClientConfig();
 
         // pulse animation for time warning
@@ -111,7 +111,7 @@ public class VoteKickHud {
         }
     }
 
-    private static void render(GuiGraphics guiGraphics, DeltaTracker tickDelta) {
+    private static void render(GuiGraphics guiGraphics) {
         Minecraft mc = Minecraft.getInstance();
         Font font = mc.font;
         ClientConfig config = VoteKickClient.getClientConfig();
@@ -254,11 +254,19 @@ public class VoteKickHud {
 
     private static void drawScaledText(GuiGraphics guiGraphics, Font font, Component text, int x, int y, int color, float scale) {
         if (scale != 1.0f) {
+            //? if >=1.21.6 {
+            /*guiGraphics.pose().pushMatrix();
+            guiGraphics.pose().translate(x, y);
+            guiGraphics.pose().scale(scale, scale);
+            guiGraphics.drawString(font, text, 0, 0, color);
+            guiGraphics.pose().popMatrix();
+            *///?} else {
             guiGraphics.pose().pushPose();
             guiGraphics.pose().translate(x, y, 0);
             guiGraphics.pose().scale(scale, scale, 1.0f);
             guiGraphics.drawString(font, text, 0, 0, color);
             guiGraphics.pose().popPose();
+            //?}
         } else {
             guiGraphics.drawString(font, text, x, y, color);
         }
@@ -266,11 +274,19 @@ public class VoteKickHud {
 
     private static void drawScaledText(GuiGraphics guiGraphics, Font font, FormattedCharSequence text, int x, int y, int color, float scale) {
         if (scale != 1.0f) {
+            //? if >=1.21.6 {
+            /*guiGraphics.pose().pushMatrix();
+            guiGraphics.pose().translate(x, y);
+            guiGraphics.pose().scale(scale, scale);
+            guiGraphics.drawString(font, text, 0, 0, color);
+            guiGraphics.pose().popMatrix();
+            *///?} else {
             guiGraphics.pose().pushPose();
             guiGraphics.pose().translate(x, y, 0);
             guiGraphics.pose().scale(scale, scale, 1.0f);
             guiGraphics.drawString(font, text, 0, 0, color);
             guiGraphics.pose().popPose();
+            //?}
         } else {
             guiGraphics.drawString(font, text, x, y, color);
         }
@@ -490,8 +506,6 @@ public class VoteKickHud {
         Minecraft mc = Minecraft.getInstance();
         wrapReasonText(mc.font, VoteKickClient.getClientConfig().getUiScale());
 
-        VoteKickClient.resetVoteState();
-
         animationProgress = 0f;
         isShowing = true;
         isAnimating = true;
@@ -521,8 +535,6 @@ public class VoteKickHud {
         isVoteTarget = false;
         wrappedReasonText = null;
 
-        VoteKickClient.resetVoteState();
-
         if (onHideListener != null) {
             onHideListener.onHide();
         }
@@ -547,7 +559,6 @@ public class VoteKickHud {
 
     public static void resetVoteState() {
         hasVoted = false;
-        VoteKickClient.resetVoteState();
     }
 
     public static boolean isVotePanelShowing() {

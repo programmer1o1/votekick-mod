@@ -1,13 +1,21 @@
 package sierra.thing.votekick.network;
 
+//? if fabric {
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.networking.v1.PacketByteBufs;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.network.FriendlyByteBuf;
+//?} else if neoforge {
+/*//? if >=1.21.8 {
+/^import net.neoforged.neoforge.client.network.ClientPacketDistributor;
+^///?}
+import net.neoforged.neoforge.network.PacketDistributor;
+*///?}
 import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sierra.thing.votekick.VoteKickMod;
 
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.UUID;
 
 /**
@@ -16,6 +24,33 @@ import java.util.UUID;
  */
 public class VoteKickNetworking {
     private static final Logger LOGGER = LoggerFactory.getLogger(VoteKickMod.MOD_ID);
+
+    public static void sendCastVote(boolean voteYes) {
+        try {
+            CastVotePayload payload = new CastVotePayload(voteYes);
+            //? if fabric {
+            //? if >=1.20.6 {
+            /*ClientPlayNetworking.send(payload);
+            *///?} else {
+            FriendlyByteBuf buf = PacketByteBufs.create();
+            PayloadIo.writeCastVote(buf, payload);
+            ClientPlayNetworking.send(CastVotePayload.ID, buf);
+            //?}
+            //?} else if neoforge {
+            /*//? if >=1.21.8 {
+            /^ClientPacketDistributor.sendToServer(payload);
+            ^///?} else {
+            //? if >=1.20.6 {
+            /^PacketDistributor.sendToServer(payload);
+            ^///?} else {
+            PacketDistributor.SERVER.noArg().send(payload);
+            //?}
+            //?}
+            *///?}
+        } catch (Exception e) {
+            LOGGER.error("Error sending CastVote payload", e);
+        }
+    }
 
     /**
      * Shows the vote UI on a client.
@@ -37,7 +72,21 @@ public class VoteKickNetworking {
             ShowVotePanelPayload payload = new ShowVotePanelPayload(
                     title, subtitle, time, yes, no, needed, isTarget
             );
-            ServerPlayNetworking.send(player, payload);
+            //? if fabric {
+            //? if >=1.20.6 {
+            /*ServerPlayNetworking.send(player, payload);
+            *///?} else {
+            FriendlyByteBuf buf = PacketByteBufs.create();
+            PayloadIo.writeShowVotePanel(buf, payload);
+            ServerPlayNetworking.send(player, ShowVotePanelPayload.ID, buf);
+            //?}
+            //?} else if neoforge {
+            /*//? if >=1.20.6 {
+            /^PacketDistributor.sendToPlayer(player, payload);
+            ^///?} else {
+            PacketDistributor.PLAYER.with(player).send(payload);
+            //?}
+            *///?}
             LOGGER.debug("Sent ShowVotePanel to {}, isTarget={}", player.getScoreboardName(), isTarget);
         } catch (Exception e) {
             LOGGER.error("Error sending ShowVotePanel to {}", player.getScoreboardName(), e);
@@ -53,7 +102,21 @@ public class VoteKickNetworking {
 
         try {
             UpdateVotePanelPayload payload = new UpdateVotePanelPayload(time, yes, no);
-            ServerPlayNetworking.send(player, payload);
+            //? if fabric {
+            //? if >=1.20.6 {
+            /*ServerPlayNetworking.send(player, payload);
+            *///?} else {
+            FriendlyByteBuf buf = PacketByteBufs.create();
+            PayloadIo.writeUpdateVotePanel(buf, payload);
+            ServerPlayNetworking.send(player, UpdateVotePanelPayload.ID, buf);
+            //?}
+            //?} else if neoforge {
+            /*//? if >=1.20.6 {
+            /^PacketDistributor.sendToPlayer(player, payload);
+            ^///?} else {
+            PacketDistributor.PLAYER.with(player).send(payload);
+            //?}
+            *///?}
             LOGGER.trace("Sent UpdateVotePanel to {}: time={}, yes={}, no={}",
                     player.getScoreboardName(), time, yes, no);
         } catch (Exception e) {
@@ -70,7 +133,21 @@ public class VoteKickNetworking {
 
         try {
             HideVotePanelPayload payload = new HideVotePanelPayload();
-            ServerPlayNetworking.send(player, payload);
+            //? if fabric {
+            //? if >=1.20.6 {
+            /*ServerPlayNetworking.send(player, payload);
+            *///?} else {
+            FriendlyByteBuf buf = PacketByteBufs.create();
+            PayloadIo.writeHideVotePanel(buf, payload);
+            ServerPlayNetworking.send(player, HideVotePanelPayload.ID, buf);
+            //?}
+            //?} else if neoforge {
+            /*//? if >=1.20.6 {
+            /^PacketDistributor.sendToPlayer(player, payload);
+            ^///?} else {
+            PacketDistributor.PLAYER.with(player).send(payload);
+            //?}
+            *///?}
             LOGGER.debug("Sent HideVotePanel to {}", player.getScoreboardName());
         } catch (Exception e) {
             LOGGER.error("Error sending HideVotePanel to {}", player.getScoreboardName(), e);
@@ -111,24 +188,15 @@ public class VoteKickNetworking {
         if (players == null) return;
 
         try {
-            // Create payload once instead of per-player
-            UpdateVotePanelPayload payload = new UpdateVotePanelPayload(time, yes, no);
-
-            // Track valid players for better logging
-            Collection<ServerPlayer> validPlayers = new ArrayList<>();
+            int count = 0;
             for (ServerPlayer player : players) {
                 if (player != null) {
-                    validPlayers.add(player);
+                    sendUpdateVotePanel(player, time, yes, no);
+                    count++;
                 }
             }
 
-            // Send to everyone
-            for (ServerPlayer player : validPlayers) {
-                ServerPlayNetworking.send(player, payload);
-            }
-
-            LOGGER.trace("Broadcast UpdateVotePanel to {} players: time={}, yes={}, no={}",
-                    validPlayers.size(), time, yes, no);
+            LOGGER.trace("Broadcast UpdateVotePanel to {} players: time={}, yes={}, no={}", count, time, yes, no);
         } catch (Exception e) {
             LOGGER.error("Error broadcasting UpdateVotePanel", e);
         }
@@ -142,13 +210,10 @@ public class VoteKickNetworking {
         if (players == null) return;
 
         try {
-            // Reuse the same packet object for all players
-            HideVotePanelPayload payload = new HideVotePanelPayload();
-
             int count = 0;
             for (ServerPlayer player : players) {
                 if (player != null) {
-                    ServerPlayNetworking.send(player, payload);
+                    sendHideVotePanel(player);
                     count++;
                 }
             }

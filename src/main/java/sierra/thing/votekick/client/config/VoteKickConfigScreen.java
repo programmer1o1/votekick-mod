@@ -16,7 +16,7 @@ public class VoteKickConfigScreen extends Screen {
     private final ClientConfig config;
 
     // colors matching the actual vote panel
-    private static final int COLOR_BACKGROUND = 0xE0000000;
+    private static final int COLOR_BACKGROUND = 0xFF000000;
     private static final int COLOR_HEADER_BG = 0xFF1a1a1a;
     private static final int COLOR_ACCENT = 0xFF3498db;
     private static final int COLOR_YES = 0xFF27ae60;
@@ -126,6 +126,19 @@ public class VoteKickConfigScreen extends Screen {
 
         // position cycle button
         String[] positions = {"Top-Right", "Top-Left", "Bottom-Right", "Bottom-Left"};
+        //? if >=1.21.11 {
+        /*this.positionButton = CycleButton.<String>builder(Component::literal, () -> positions[tempPosition])
+                .withValues(positions)
+                .create(leftColumnX, currentY, buttonWidth, buttonHeight,
+                        Component.literal("Position"), (button, value) -> {
+                            for (int i = 0; i < positions.length; i++) {
+                                if (positions[i].equals(value)) {
+                                    tempPosition = i;
+                                    break;
+                                }
+                            }
+                        });
+        *///?} else {
         this.positionButton = CycleButton.<String>builder(Component::literal)
                 .withValues(positions)
                 .withInitialValue(positions[tempPosition])
@@ -138,6 +151,7 @@ public class VoteKickConfigScreen extends Screen {
                                 }
                             }
                         });
+        //?}
         currentY += spacing * 2;
 
         // reset button
@@ -198,12 +212,24 @@ public class VoteKickConfigScreen extends Screen {
         config.setPanelPosition(tempPosition);
     }
 
+    //? if >=1.20.2 {
+    /*@Override
+    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
+        super.renderBackground(guiGraphics, mouseX, mouseY, partialTick);
+    }
+    *///?} else {
+    @Override
+    public void renderBackground(GuiGraphics guiGraphics) {
+        super.renderBackground(guiGraphics);
+    }
+    //?}
+
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        this.renderBackground(guiGraphics, mouseX, mouseY, partialTick);
-
         // update animation
         previewPulse += partialTick * 0.1f;
+
+        super.render(guiGraphics, mouseX, mouseY, partialTick);
 
         // title
         guiGraphics.drawCenteredString(this.font, this.title, this.width / 2, 10, 0xFFFFFF);
@@ -219,8 +245,6 @@ public class VoteKickConfigScreen extends Screen {
 
         // preview on the right side
         renderCompactPreview(guiGraphics);
-
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
     }
 
     private void renderCompactPreview(GuiGraphics guiGraphics) {
@@ -407,11 +431,19 @@ public class VoteKickConfigScreen extends Screen {
 
     private void drawScaledText(GuiGraphics guiGraphics, Font font, Component text, int x, int y, int color, float scale) {
         if (scale != 1.0f) {
+            //? if >=1.21.6 {
+            /*guiGraphics.pose().pushMatrix();
+            guiGraphics.pose().translate(x, y);
+            guiGraphics.pose().scale(scale, scale);
+            guiGraphics.drawString(font, text, 0, 0, color);
+            guiGraphics.pose().popMatrix();
+            *///?} else {
             guiGraphics.pose().pushPose();
             guiGraphics.pose().translate(x, y, 0);
             guiGraphics.pose().scale(scale, scale, 1.0f);
             guiGraphics.drawString(font, text, 0, 0, color);
             guiGraphics.pose().popPose();
+            //?}
         } else {
             guiGraphics.drawString(font, text, x, y, color);
         }

@@ -4,7 +4,6 @@ package sierra.thing.votekick.protection;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
-import net.fabricmc.loader.api.FabricLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sierra.thing.votekick.VoteKickMod;
@@ -27,7 +26,7 @@ public class PlayerProtectionManager {
     private final File dataFile;
 
     public PlayerProtectionManager() {
-        File configDir = FabricLoader.getInstance().getConfigDir().toFile();
+        File configDir = VoteKickMod.platform().getConfigDir().toFile();
         this.dataFile = new File(configDir, "votekick_protection.json");
     }
 

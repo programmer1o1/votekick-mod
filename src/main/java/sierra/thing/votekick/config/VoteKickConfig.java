@@ -35,6 +35,16 @@ public class VoteKickConfig {
     private static final int DEFAULT_HEAVY_MODIFIER_THRESHOLD = 5;
     private static final int DEFAULT_DATA_CLEANUP_DAYS = 30;
 
+    // permissions + history defaults
+    private static final boolean DEFAULT_PERMISSIONS_ENABLED = true;
+    private static final int DEFAULT_PERMISSION_START_LEVEL = 0;
+    private static final int DEFAULT_PERMISSION_VOTE_LEVEL = 0;
+    private static final int DEFAULT_PERMISSION_ADMIN_LEVEL = 2;
+    private static final int DEFAULT_PERMISSION_EXEMPT_LEVEL = 2;
+    private static final boolean DEFAULT_HISTORY_ENABLED = true;
+    private static final int DEFAULT_HISTORY_MAX_ENTRIES = 200;
+    private static final int DEFAULT_HISTORY_RETENTION_DAYS = 90;
+
     // limits
     private static final int MIN_VOTE_DURATION = 5;
     private static final int MAX_VOTE_DURATION = 300;
@@ -42,6 +52,12 @@ public class VoteKickConfig {
     private static final int MAX_COOLDOWN = 3600;
     private static final int MIN_REASON_LENGTH = 10;
     private static final int MAX_REASON_LENGTH = 500;
+    private static final int MIN_HISTORY_ENTRIES = 10;
+    private static final int MAX_HISTORY_ENTRIES = 10000;
+    private static final int MIN_HISTORY_RETENTION_DAYS = 1;
+    private static final int MAX_HISTORY_RETENTION_DAYS = 3650;
+    private static final int MIN_PERMISSION_LEVEL = 0;
+    private static final int MAX_PERMISSION_LEVEL = 4;
 
     // basic vote config
     private final int voteDurationSeconds;
@@ -70,6 +86,16 @@ public class VoteKickConfig {
     private final int heavyModifierThreshold;
     private final int dataCleanupDays;
 
+    // permissions + history config
+    private final boolean permissionsEnabled;
+    private final int permissionStartDefaultLevel;
+    private final int permissionVoteDefaultLevel;
+    private final int permissionAdminDefaultLevel;
+    private final int permissionExemptDefaultLevel;
+    private final boolean historyEnabled;
+    private final int historyMaxEntries;
+    private final int historyRetentionDays;
+
     public VoteKickConfig() {
         this.voteDurationSeconds = DEFAULT_VOTE_DURATION;
         this.cooldownSeconds = DEFAULT_COOLDOWN;
@@ -95,6 +121,15 @@ public class VoteKickConfig {
         this.lightModifierThreshold = DEFAULT_LIGHT_MODIFIER_THRESHOLD;
         this.heavyModifierThreshold = DEFAULT_HEAVY_MODIFIER_THRESHOLD;
         this.dataCleanupDays = DEFAULT_DATA_CLEANUP_DAYS;
+
+        this.permissionsEnabled = DEFAULT_PERMISSIONS_ENABLED;
+        this.permissionStartDefaultLevel = DEFAULT_PERMISSION_START_LEVEL;
+        this.permissionVoteDefaultLevel = DEFAULT_PERMISSION_VOTE_LEVEL;
+        this.permissionAdminDefaultLevel = DEFAULT_PERMISSION_ADMIN_LEVEL;
+        this.permissionExemptDefaultLevel = DEFAULT_PERMISSION_EXEMPT_LEVEL;
+        this.historyEnabled = DEFAULT_HISTORY_ENABLED;
+        this.historyMaxEntries = DEFAULT_HISTORY_MAX_ENTRIES;
+        this.historyRetentionDays = DEFAULT_HISTORY_RETENTION_DAYS;
     }
 
     public VoteKickConfig(Properties props) {
@@ -293,6 +328,76 @@ public class VoteKickConfig {
             cleanupDays = DEFAULT_DATA_CLEANUP_DAYS;
         }
         this.dataCleanupDays = cleanupDays;
+
+        this.permissionsEnabled = Boolean.parseBoolean(props.getProperty("permissions_enabled", "true"));
+
+        int startLevel = DEFAULT_PERMISSION_START_LEVEL;
+        try {
+            startLevel = Integer.parseInt(props.getProperty("permissions_start_default_level", String.valueOf(DEFAULT_PERMISSION_START_LEVEL)));
+            if (startLevel < MIN_PERMISSION_LEVEL || startLevel > MAX_PERMISSION_LEVEL) {
+                startLevel = DEFAULT_PERMISSION_START_LEVEL;
+            }
+        } catch (NumberFormatException e) {
+            startLevel = DEFAULT_PERMISSION_START_LEVEL;
+        }
+        this.permissionStartDefaultLevel = startLevel;
+
+        int voteLevel = DEFAULT_PERMISSION_VOTE_LEVEL;
+        try {
+            voteLevel = Integer.parseInt(props.getProperty("permissions_vote_default_level", String.valueOf(DEFAULT_PERMISSION_VOTE_LEVEL)));
+            if (voteLevel < MIN_PERMISSION_LEVEL || voteLevel > MAX_PERMISSION_LEVEL) {
+                voteLevel = DEFAULT_PERMISSION_VOTE_LEVEL;
+            }
+        } catch (NumberFormatException e) {
+            voteLevel = DEFAULT_PERMISSION_VOTE_LEVEL;
+        }
+        this.permissionVoteDefaultLevel = voteLevel;
+
+        int adminLevel = DEFAULT_PERMISSION_ADMIN_LEVEL;
+        try {
+            adminLevel = Integer.parseInt(props.getProperty("permissions_admin_default_level", String.valueOf(DEFAULT_PERMISSION_ADMIN_LEVEL)));
+            if (adminLevel < MIN_PERMISSION_LEVEL || adminLevel > MAX_PERMISSION_LEVEL) {
+                adminLevel = DEFAULT_PERMISSION_ADMIN_LEVEL;
+            }
+        } catch (NumberFormatException e) {
+            adminLevel = DEFAULT_PERMISSION_ADMIN_LEVEL;
+        }
+        this.permissionAdminDefaultLevel = adminLevel;
+
+        int exemptLevel = DEFAULT_PERMISSION_EXEMPT_LEVEL;
+        try {
+            exemptLevel = Integer.parseInt(props.getProperty("permissions_exempt_default_level", String.valueOf(DEFAULT_PERMISSION_EXEMPT_LEVEL)));
+            if (exemptLevel < MIN_PERMISSION_LEVEL || exemptLevel > MAX_PERMISSION_LEVEL) {
+                exemptLevel = DEFAULT_PERMISSION_EXEMPT_LEVEL;
+            }
+        } catch (NumberFormatException e) {
+            exemptLevel = DEFAULT_PERMISSION_EXEMPT_LEVEL;
+        }
+        this.permissionExemptDefaultLevel = exemptLevel;
+
+        this.historyEnabled = Boolean.parseBoolean(props.getProperty("vote_history_enabled", "true"));
+
+        int historyEntries = DEFAULT_HISTORY_MAX_ENTRIES;
+        try {
+            historyEntries = Integer.parseInt(props.getProperty("vote_history_max_entries", String.valueOf(DEFAULT_HISTORY_MAX_ENTRIES)));
+            if (historyEntries < MIN_HISTORY_ENTRIES || historyEntries > MAX_HISTORY_ENTRIES) {
+                historyEntries = DEFAULT_HISTORY_MAX_ENTRIES;
+            }
+        } catch (NumberFormatException e) {
+            historyEntries = DEFAULT_HISTORY_MAX_ENTRIES;
+        }
+        this.historyMaxEntries = historyEntries;
+
+        int historyRetention = DEFAULT_HISTORY_RETENTION_DAYS;
+        try {
+            historyRetention = Integer.parseInt(props.getProperty("vote_history_retention_days", String.valueOf(DEFAULT_HISTORY_RETENTION_DAYS)));
+            if (historyRetention < MIN_HISTORY_RETENTION_DAYS || historyRetention > MAX_HISTORY_RETENTION_DAYS) {
+                historyRetention = DEFAULT_HISTORY_RETENTION_DAYS;
+            }
+        } catch (NumberFormatException e) {
+            historyRetention = DEFAULT_HISTORY_RETENTION_DAYS;
+        }
+        this.historyRetentionDays = historyRetention;
     }
 
     public void updateProperties(Properties props) {
@@ -320,6 +425,15 @@ public class VoteKickConfig {
         props.setProperty("light_modifier_threshold", Integer.toString(lightModifierThreshold));
         props.setProperty("heavy_modifier_threshold", Integer.toString(heavyModifierThreshold));
         props.setProperty("data_cleanup_days", Integer.toString(dataCleanupDays));
+
+        props.setProperty("permissions_enabled", Boolean.toString(permissionsEnabled));
+        props.setProperty("permissions_start_default_level", Integer.toString(permissionStartDefaultLevel));
+        props.setProperty("permissions_vote_default_level", Integer.toString(permissionVoteDefaultLevel));
+        props.setProperty("permissions_admin_default_level", Integer.toString(permissionAdminDefaultLevel));
+        props.setProperty("permissions_exempt_default_level", Integer.toString(permissionExemptDefaultLevel));
+        props.setProperty("vote_history_enabled", Boolean.toString(historyEnabled));
+        props.setProperty("vote_history_max_entries", Integer.toString(historyMaxEntries));
+        props.setProperty("vote_history_retention_days", Integer.toString(historyRetentionDays));
     }
 
     // basic vote getters
@@ -348,4 +462,13 @@ public class VoteKickConfig {
     public int getLightModifierThreshold() { return lightModifierThreshold; }
     public int getHeavyModifierThreshold() { return heavyModifierThreshold; }
     public int getDataCleanupDays() { return dataCleanupDays; }
+
+    public boolean isPermissionsEnabled() { return permissionsEnabled; }
+    public int getPermissionStartDefaultLevel() { return permissionStartDefaultLevel; }
+    public int getPermissionVoteDefaultLevel() { return permissionVoteDefaultLevel; }
+    public int getPermissionAdminDefaultLevel() { return permissionAdminDefaultLevel; }
+    public int getPermissionExemptDefaultLevel() { return permissionExemptDefaultLevel; }
+    public boolean isHistoryEnabled() { return historyEnabled; }
+    public int getHistoryMaxEntries() { return historyMaxEntries; }
+    public int getHistoryRetentionDays() { return historyRetentionDays; }
 }
