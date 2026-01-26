@@ -10,6 +10,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60  # Increase overall job timeout
     steps:
       - uses: actions/checkout@v4
 
@@ -24,29 +25,56 @@ jobs:
 
       - name: Build all variants
         run: |
-          ./gradlew \
-            1.20.1-fabric:build \
-            1.20.4-fabric:build \
-            1.20.4-neoforge:build \
-            1.20.6-fabric:build \
-            1.20.6-neoforge:build \
-            1.21.1-fabric:build \
-            1.21.1-neoforge:build \
-            1.21.4-fabric:build \
-            1.21.4-neoforge:build \
-            1.21.6-fabric:build \
-            1.21.6-neoforge:build \
-            1.21.8-fabric:build \
-            1.21.8-neoforge:build \
-            1.21.9-fabric:build \
-            1.21.9-neoforge:build \
-            1.21.10-fabric:build \
-            1.21.10-neoforge:build \
-            1.21.11-fabric:build \
-            1.21.11-neoforge:build \
-            --console=plain --no-daemon
+          attempt=0
+          max_attempts=3
+          
+          until [ "$attempt" -ge "$max_attempts" ]
+          do
+            attempt=$((attempt+1))
+            echo "Build attempt $attempt of $max_attempts"
+          
+            # Use parallel builds and increase memory
+            ./gradlew \
+              --refresh-dependencies \
+              --console=plain \
+              --no-daemon \
+              --parallel \
+              --max-workers=4 \
+              -Dorg.gradle.jvmargs="-Xmx4G -XX:+HeapDumpOnOutOfMemoryError" \
+              1.20.1-fabric:build \
+              1.20.4-fabric:build \
+              1.20.4-neoforge:build \
+              1.20.6-fabric:build \
+              1.20.6-neoforge:build \
+              1.21.1-fabric:build \
+              1.21.1-neoforge:build \
+              1.21.4-fabric:build \
+              1.21.4-neoforge:build \
+              1.21.6-fabric:build \
+              1.21.6-neoforge:build \
+              1.21.8-fabric:build \
+              1.21.8-neoforge:build \
+              1.21.9-fabric:build \
+              1.21.9-neoforge:build \
+              1.21.10-fabric:build \
+              1.21.10-neoforge:build \
+              1.21.11-fabric:build \
+              1.21.11-neoforge:build && break
+          
+            echo "Build failed on attempt $attempt"
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              echo "Retrying in 10 seconds..."
+              sleep 10
+            fi
+          done
+          
+          if [ "$attempt" -ge "$max_attempts" ]; then
+            echo "Build failed after $max_attempts attempts"
+            exit 1
+          fi
 
       - name: Upload build artifacts
+        if: success() || failure()  # Upload even if build fails
         uses: actions/upload-artifact@v4
         with:
           name: votekick-jars
