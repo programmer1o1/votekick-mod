@@ -14,6 +14,7 @@ import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import sierra.thing.votekick.commands.VoteKickCommand;
+import sierra.thing.votekick.commands.VoteKickDevCommand;
 import sierra.thing.votekick.config.VoteKickConfig;
 import sierra.thing.votekick.history.VoteHistoryManager;
 import sierra.thing.votekick.platform.Platform;
@@ -54,6 +55,7 @@ public class VoteKickMod {
     private static final Map<UUID, VoteSession> activeVotes = new HashMap<>();
     private static PlayerProtectionManager protectionManager;
     private static VoteHistoryManager historyManager;
+    private static volatile boolean serverStopping = false;
 
     public static void init() {
         LOGGER.info("VoteKick v{} loading on {}", VERSION, PLATFORM.loader());
@@ -77,14 +79,19 @@ public class VoteKickMod {
 
     public static void registerCommands(CommandDispatcher<CommandSourceStack> dispatcher) {
         VoteKickCommand.register(dispatcher);
+        if (platform().isDevelopmentEnvironment()) {
+            VoteKickDevCommand.register(dispatcher);
+        }
     }
 
     public static void onServerStarting(MinecraftServer server) {
+        serverStopping = false;
         protectionManager.load();
         historyManager.load();
     }
 
     public static void onServerStopping(MinecraftServer server) {
+        serverStopping = true;
         protectionManager.save();
         historyManager.save();
     }
@@ -123,6 +130,10 @@ public class VoteKickMod {
     }
 
     public static void onPlayerDisconnect(ServerPlayer player, MinecraftServer server) {
+        if (platform().isDevelopmentEnvironment()) {
+            VoteKickDevCommand.onPlayerDisconnect(player, server);
+        }
+
         UUID playerUUID = player.getUUID();
 
         VoteSession targetSession = activeVotes.get(playerUUID);
@@ -201,6 +212,10 @@ public class VoteKickMod {
 
     public static Map<UUID, VoteSession> getActiveVotes() {
         return activeVotes;
+    }
+
+    public static boolean isServerStopping() {
+        return serverStopping;
     }
 
     public static void addVote(UUID targetUUID, VoteSession session) {

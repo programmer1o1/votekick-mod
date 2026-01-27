@@ -107,7 +107,7 @@ public class VoteKickCommand {
                 .redirect(dispatcher.getRoot().getChild("vote")));
     }
 
-    private static int startVoteKick(CommandSourceStack source, ServerPlayer target, String reason) throws CommandSyntaxException {
+    public static int startVoteKick(CommandSourceStack source, ServerPlayer target, String reason) throws CommandSyntaxException {
         try {
             ServerPlayer player = source.getPlayerOrException();
 
@@ -116,15 +116,20 @@ public class VoteKickCommand {
                 return 0;
             }
 
-            if (VoteKickMod.getConfig().isRequireKickReason() && (reason == null || reason.trim().isEmpty())) {
+            String sanitizedReason = sanitizeReason(reason);
+            if (VoteKickMod.getConfig().isRequireKickReason() && sanitizedReason.isBlank()) {
                 sendError(player, "You must provide a reason for the vote kick");
                 return 0;
             }
 
             int maxLength = VoteKickMod.getConfig().getMaxReasonLength();
-            if (reason != null && reason.length() > maxLength) {
-                reason = reason.substring(0, maxLength) + "...";
+            if (!VoteKickMod.getConfig().isRequireKickReason() && sanitizedReason.isBlank()) {
+                sanitizedReason = "No reason provided";
             }
+            if (sanitizedReason.length() > maxLength) {
+                sanitizedReason = sanitizedReason.substring(0, maxLength) + "...";
+            }
+            reason = sanitizedReason;
 
             if (player.getUUID().equals(target.getUUID()) && !VoteKickMod.getConfig().isAllowSelfVoting()) {
                 sendError(player, "You cannot start a vote against yourself");
@@ -399,7 +404,7 @@ public class VoteKickCommand {
                 String actorSuffix = entry.endedBy != null && !entry.endedBy.isBlank()
                         ? " (by " + entry.endedBy + ")"
                         : "";
-                String reason = truncate(entry.reason, 80);
+                String reason = truncate(sanitizeReason(entry.reason), 80);
                 String reasonPart = reason.isBlank() ? "" : " | reason: " + reason;
 
                 String line = "[" + time + "] " + outcomeLabel + actorSuffix +
@@ -459,5 +464,22 @@ public class VoteKickCommand {
         }
 
         return trimmed.substring(0, Math.max(0, maxLength - 3)) + "...";
+    }
+
+    private static String sanitizeReason(String reason) {
+        if (reason == null) {
+            return "";
+        }
+
+        StringBuilder sanitized = new StringBuilder(reason.length());
+        for (int i = 0; i < reason.length(); i++) {
+            char c = reason.charAt(i);
+            if (c == '\u00a7' || c < 0x20 || c == 0x7F) {
+                sanitized.append(' ');
+            } else {
+                sanitized.append(c);
+            }
+        }
+        return sanitized.toString().trim();
     }
 }

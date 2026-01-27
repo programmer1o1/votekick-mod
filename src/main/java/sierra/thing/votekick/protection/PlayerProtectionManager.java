@@ -171,6 +171,15 @@ public class PlayerProtectionManager {
         return 1.0;
     }
 
+    public void clearProtection(UUID playerUUID) {
+        if (playerUUID == null) {
+            return;
+        }
+
+        protectionData.remove(playerUUID);
+        knownPlayers.add(playerUUID);
+    }
+
     public void cleanup() {
         if (!anyProtectionEnabled()) {
             return;

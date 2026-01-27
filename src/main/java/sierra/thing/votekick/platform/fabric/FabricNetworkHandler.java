@@ -12,6 +12,7 @@ import sierra.thing.votekick.network.PayloadIo;
 import sierra.thing.votekick.network.PayloadRegistry;
 import sierra.thing.votekick.network.ShowVotePanelPayload;
 import sierra.thing.votekick.network.UpdateVotePanelPayload;
+import sierra.thing.votekick.network.VoteKickRateLimiter;
 
 public final class FabricNetworkHandler {
     private FabricNetworkHandler() {
@@ -22,12 +23,19 @@ public final class FabricNetworkHandler {
 
         //? if >=1.20.6 {
         /*ServerPlayNetworking.registerGlobalReceiver(CastVotePayload.TYPE, (payload, context) -> {
-            VoteKickCommand.castVote(context.player(), payload.voteYes());
+            if (VoteKickRateLimiter.allowCastVote(context.player())) {
+                VoteKickCommand.castVote(context.player(), payload.voteYes());
+            }
         });
         *///?} else {
         ServerPlayNetworking.registerGlobalReceiver(CastVotePayload.ID, (server, player, handler, buf, responseSender) -> {
             CastVotePayload payload = PayloadIo.readCastVote(buf);
-            server.execute(() -> VoteKickCommand.castVote(player, payload.voteYes()));
+            server.execute(() -> {
+                if (!VoteKickRateLimiter.allowCastVote(player)) {
+                    return;
+                }
+                VoteKickCommand.castVote(player, payload.voteYes());
+            });
         });
         //?}
     }

@@ -70,10 +70,6 @@ public final class PayloadIo {
     }
 
     private static String readString(FriendlyByteBuf buf) {
-        String str = buf.readUtf();
-        if (str.length() > MAX_STRING_LENGTH) {
-            return str.substring(0, MAX_STRING_LENGTH);
-        }
-        return str;
+        return buf.readUtf(MAX_STRING_LENGTH);
     }
 }

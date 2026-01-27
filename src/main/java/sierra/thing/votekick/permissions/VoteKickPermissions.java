@@ -12,6 +12,10 @@ import sierra.thing.votekick.platform.Platform;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 //? if neoforge {
 import net.minecraft.network.chat.Component;
@@ -41,6 +45,57 @@ public final class VoteKickPermissions {
     private static final String LUCKPERMS_USER_CLASS = "net.luckperms.api.model.user.User";
     private static final String LUCKPERMS_CONTEXT_MANAGER_CLASS = "net.luckperms.api.context.ContextManager";
     private static final String LUCKPERMS_QUERY_OPTIONS_CLASS = "net.luckperms.api.query.QueryOptions";
+
+    /**
+     * Validates method signatures to prevent reflection-based exploits.
+     * Only matches methods that meet all signature constraints.
+     */
+    private static class MethodSignature {
+        final String name;
+        final Class<?> returnType;
+        final List<Class<?>> paramTypes;
+
+        MethodSignature(String name, Class<?> returnType, Class<?>... paramTypes) {
+            this.name = name;
+            this.returnType = returnType;
+            this.paramTypes = Arrays.asList(paramTypes);
+        }
+
+        /**
+         * Check if a method matches this signature.
+         * @return true if the method matches all constraints of this signature
+         */
+        boolean matches(Method method) {
+            if (method == null) {
+                return false;
+            }
+
+            // Validate name
+            if (!method.getName().equals(name)) {
+                return false;
+            }
+
+            // Validate return type
+            if (!method.getReturnType().equals(returnType)) {
+                return false;
+            }
+
+            // Validate parameter count
+            Class<?>[] methodParams = method.getParameterTypes();
+            if (methodParams.length != paramTypes.size()) {
+                return false;
+            }
+
+            // Validate each parameter type matches exactly
+            for (int i = 0; i < paramTypes.size(); i++) {
+                if (!methodParams[i].equals(paramTypes.get(i))) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
 
     private static Method fabricCheckPlayer;
     private static Method fabricCheckSource;
@@ -171,15 +226,24 @@ public final class VoteKickPermissions {
 
         try {
             if (fabricCheckPlayer != null) {
-                return (Boolean) invokeFabricCheck(fabricCheckPlayer, fabricCheckPlayerHasDefault, player, node, defaultLevel);
+                Object result = invokeFabricCheck(fabricCheckPlayer, fabricCheckPlayerHasDefault, player, node, defaultLevel);
+                if (result instanceof Boolean booleanResult) {
+                    return booleanResult;
+                }
+                return false;
             }
 
             if (fabricCheckSource != null) {
                 CommandSourceStack source = player.createCommandSourceStack();
-                return (Boolean) invokeFabricCheck(fabricCheckSource, fabricCheckSourceHasDefault, source, node, defaultLevel);
+                Object result = invokeFabricCheck(fabricCheckSource, fabricCheckSourceHasDefault, source, node, defaultLevel);
+                if (result instanceof Boolean booleanResult) {
+                    return booleanResult;
+                }
+                return false;
             }
         } catch (Exception e) {
             logFabricErrorOnce(e);
+            return false;
         }
 
         return null;
@@ -191,26 +255,63 @@ public final class VoteKickPermissions {
         }
 
         try {
-            Object api = Class.forName(LUCKPERMS_PROVIDER_CLASS).getMethod("get").invoke(null);
+            // Validate that the LuckPerms API class exists before invoking methods
+            Class<?> luckPermsProviderClass = Class.forName(LUCKPERMS_PROVIDER_CLASS);
+
+            // Whitelisted signature: LuckPermsProvider.get() -> LuckPermsAPI
+            MethodSignature getApiSig = new MethodSignature("get", Object.class);
+            Method getApi = findValidatedMethod(luckPermsProviderClass, getApiSig);
+            if (getApi == null) {
+                return null;
+            }
+
+            Object api = getApi.invoke(null);
             if (api == null) {
                 return null;
             }
 
-            Object userManager = api.getClass().getMethod("getUserManager").invoke(api);
+            // getUserManager() -> UserManager
+            MethodSignature getUserManagerSig = new MethodSignature("getUserManager", Object.class);
+            Method getUserManager = findValidatedMethod(api.getClass(), getUserManagerSig);
+            if (getUserManager == null) {
+                return null;
+            }
+
+            Object userManager = getUserManager.invoke(api);
             if (userManager == null) {
                 return null;
             }
 
-            Object user = userManager.getClass().getMethod("getUser", java.util.UUID.class)
-                    .invoke(userManager, player.getUUID());
+            // getUser(UUID) -> User
+            MethodSignature getUserSig = new MethodSignature("getUser", Object.class, java.util.UUID.class);
+            Method getUser = findValidatedMethod(userManager.getClass(), getUserSig);
+            if (getUser == null) {
+                return null;
+            }
+
+            Object user = getUser.invoke(userManager, player.getUUID());
             if (user == null) {
                 return null;
             }
 
-            Object contextManager = api.getClass().getMethod("getContextManager").invoke(api);
+            // getContextManager() -> ContextManager
+            MethodSignature getContextManagerSig = new MethodSignature("getContextManager", Object.class);
+            Method getContextManager = findValidatedMethod(api.getClass(), getContextManagerSig);
+            if (getContextManager == null) {
+                return null;
+            }
+
+            Object contextManager = getContextManager.invoke(api);
             Object queryOptions = resolveLuckPermsQueryOptions(contextManager, user);
 
-            Object cachedData = user.getClass().getMethod("getCachedData").invoke(user);
+            // getCachedData() -> CachedData
+            MethodSignature getCachedDataSig = new MethodSignature("getCachedData", Object.class);
+            Method getCachedData = findValidatedMethod(user.getClass(), getCachedDataSig);
+            if (getCachedData == null) {
+                return null;
+            }
+
+            Object cachedData = getCachedData.invoke(user);
             if (cachedData == null) {
                 return null;
             }
@@ -220,10 +321,9 @@ public final class VoteKickPermissions {
                 return null;
             }
 
-            Method checkPermission = findMethod(permissionData.getClass(), "checkPermission", 1, String.class);
-            if (checkPermission == null) {
-                checkPermission = findMethod(permissionData.getClass(), "checkPermission", 1);
-            }
+            // checkPermission(String) -> TriState/boolean
+            MethodSignature checkPermissionSig = new MethodSignature("checkPermission", Object.class, String.class);
+            Method checkPermission = findValidatedMethod(permissionData.getClass(), checkPermissionSig);
             if (checkPermission == null) {
                 return null;
             }
@@ -232,7 +332,7 @@ public final class VoteKickPermissions {
             return coerceLuckPermsResult(result);
         } catch (Throwable t) {
             logLuckPermsErrorOnce(t);
-            return null;
+            return false;
         }
     }
 
@@ -329,33 +429,66 @@ public final class VoteKickPermissions {
 
         try {
             Class<?> permissionsClass = Class.forName(FABRIC_PERMISSIONS_CLASS);
+
+            // Whitelisted signatures for Fabric Permissions API check methods
+            // check(ServerPlayer, String, int) -> boolean
+            MethodSignature fabricCheckPlayerWithDefault = new MethodSignature(
+                    "check", boolean.class, ServerPlayer.class, String.class, int.class
+            );
+
+            // check(ServerPlayer, String) -> boolean
+            MethodSignature fabricCheckPlayerNoDefault = new MethodSignature(
+                    "check", boolean.class, ServerPlayer.class, String.class
+            );
+
+            // check(CommandSourceStack, String, int) -> boolean
+            MethodSignature fabricCheckSourceWithDefault = new MethodSignature(
+                    "check", boolean.class, CommandSourceStack.class, String.class, int.class
+            );
+
+            // check(CommandSourceStack, String) -> boolean
+            MethodSignature fabricCheckSourceNoDefault = new MethodSignature(
+                    "check", boolean.class, CommandSourceStack.class, String.class
+            );
+
+            // Search for methods matching whitelisted signatures
             for (Method method : permissionsClass.getMethods()) {
                 if (!Modifier.isStatic(method.getModifiers())) {
                     continue;
                 }
-                if (!"check".equals(method.getName())) {
-                    continue;
+
+                // Check ServerPlayer with default level (3 params)
+                if (fabricCheckPlayerWithDefault.matches(method)) {
+                    fabricCheckPlayer = method;
+                    fabricCheckPlayerHasDefault = true;
+                    break;
                 }
-                Class<?> returnType = method.getReturnType();
-                if (!(returnType.equals(boolean.class) || returnType.equals(Boolean.class))) {
-                    continue;
+
+                // Check ServerPlayer without default level (2 params)
+                if (fabricCheckPlayerNoDefault.matches(method)) {
+                    fabricCheckPlayer = method;
+                    fabricCheckPlayerHasDefault = false;
+                    break;
                 }
-                Class<?>[] params = method.getParameterTypes();
-                if (params.length == 3 && params[1].equals(String.class) && params[2].equals(int.class)) {
-                    if (ServerPlayer.class.isAssignableFrom(params[0])) {
-                        fabricCheckPlayer = method;
-                        fabricCheckPlayerHasDefault = true;
-                    } else if (CommandSourceStack.class.isAssignableFrom(params[0])) {
+            }
+
+            // If ServerPlayer method not found, try CommandSourceStack
+            if (fabricCheckPlayer == null) {
+                for (Method method : permissionsClass.getMethods()) {
+                    if (!Modifier.isStatic(method.getModifiers())) {
+                        continue;
+                    }
+
+                    if (fabricCheckSourceWithDefault.matches(method)) {
                         fabricCheckSource = method;
                         fabricCheckSourceHasDefault = true;
+                        break;
                     }
-                } else if (params.length == 2 && params[1].equals(String.class)) {
-                    if (ServerPlayer.class.isAssignableFrom(params[0])) {
-                        fabricCheckPlayer = method;
-                        fabricCheckPlayerHasDefault = false;
-                    } else if (CommandSourceStack.class.isAssignableFrom(params[0])) {
+
+                    if (fabricCheckSourceNoDefault.matches(method)) {
                         fabricCheckSource = method;
                         fabricCheckSourceHasDefault = false;
+                        break;
                     }
                 }
             }
@@ -391,6 +524,30 @@ public final class VoteKickPermissions {
         return luckPermsAvailable;
     }
 
+    /**
+     * Find a method matching one of the provided whitelisted signatures.
+     * This safely restricts reflection to approved method signatures only.
+     * @param type the class to search
+     * @param whitelist acceptable method signatures
+     * @return the first method matching a signature, or null if none found
+     */
+    private static Method findValidatedMethod(Class<?> type, MethodSignature... whitelist) {
+        if (type == null || whitelist == null || whitelist.length == 0) {
+            return null;
+        }
+
+        for (Method method : type.getMethods()) {
+            for (MethodSignature sig : whitelist) {
+                if (sig.matches(method)) {
+                    return method;
+                }
+            }
+        }
+
+        LOGGER.warn("No whitelisted method found in {} matching any allowed signatures", type.getName());
+        return null;
+    }
+
     private static Method findMethod(Class<?> type, String name, int paramCount) {
         return findMethod(type, name, paramCount, null);
     }
@@ -409,7 +566,7 @@ public final class VoteKickPermissions {
             }
             if (paramType != null && paramCount > 0) {
                 Class<?> methodParam = method.getParameterTypes()[0];
-                if (!methodParam.isAssignableFrom(paramType)) {
+                if (!methodParam.equals(paramType) && !methodParam.isAssignableFrom(paramType)) {
                     continue;
                 }
             }
@@ -471,7 +628,7 @@ public final class VoteKickPermissions {
 
             return PermissionAPI.getPermission(player, node);
         } catch (Exception e) {
-            return null;
+            return false;
         }
     }
     //?}

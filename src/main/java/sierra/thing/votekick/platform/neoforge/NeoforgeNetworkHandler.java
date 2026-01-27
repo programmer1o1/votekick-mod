@@ -17,6 +17,7 @@ import sierra.thing.votekick.network.HideVotePanelPayload;
 import sierra.thing.votekick.network.PayloadIo;
 import sierra.thing.votekick.network.ShowVotePanelPayload;
 import sierra.thing.votekick.network.UpdateVotePanelPayload;
+import sierra.thing.votekick.network.VoteKickRateLimiter;
 //? if >=1.20.6 {
 /^import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -49,7 +50,9 @@ public final class NeoforgeNetworkHandler {
     private static void handleCastVote(CastVotePayload payload, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer player) {
-                VoteKickCommand.castVote(player, payload.voteYes());
+                if (VoteKickRateLimiter.allowCastVote(player)) {
+                    VoteKickCommand.castVote(player, payload.voteYes());
+                }
             }
         });
     }
@@ -86,7 +89,9 @@ public final class NeoforgeNetworkHandler {
     private static void handleCastVote(CastVotePayload payload, PlayPayloadContext context) {
         context.workHandler().execute(() -> context.player().ifPresent(player -> {
             if (player instanceof ServerPlayer serverPlayer) {
-                VoteKickCommand.castVote(serverPlayer, payload.voteYes());
+                if (VoteKickRateLimiter.allowCastVote(serverPlayer)) {
+                    VoteKickCommand.castVote(serverPlayer, payload.voteYes());
+                }
             }
         }));
     }

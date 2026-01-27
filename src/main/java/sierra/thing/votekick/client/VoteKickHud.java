@@ -5,6 +5,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.Mth;
 import sierra.thing.votekick.VoteKickMod;
@@ -510,6 +511,12 @@ public class VoteKickHud {
         isShowing = true;
         isAnimating = true;
         showVotePanel = true;
+
+        VoteKickClient.playLocalSound(
+                SoundEvents.NOTE_BLOCK_PLING.value(),
+                0.55f,
+                isTarget ? 0.75f : 1.1f
+        );
     }
 
     public static void updateVotePanel(int time, int yes, int no) {
