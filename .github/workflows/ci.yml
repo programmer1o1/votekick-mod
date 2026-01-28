@@ -1,5 +1,9 @@
 name: CI
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
 on:
   push:
     branches:
@@ -13,7 +17,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60  # Increase overall job timeout
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -28,17 +32,24 @@ jobs:
 
       - name: Build all variants
         run: |
-          attempt=0
+          set -euo pipefail
+          chmod +x ./gradlew
+
+          attempt=1
           max_attempts=3
+          success=0
           
-          until [ "$attempt" -ge "$max_attempts" ]
-          do
-            attempt=$((attempt+1))
+          while [ "$attempt" -le "$max_attempts" ]; do
             echo "Build attempt $attempt of $max_attempts"
-          
+
+            refresh_deps=""
+            if [ "$attempt" -eq 1 ]; then
+              refresh_deps="--refresh-dependencies"
+            fi
+
             # Use parallel builds and increase memory
-            ./gradlew \
-              --refresh-dependencies \
+            if ./gradlew \
+              $refresh_deps \
               --console=plain \
               --no-daemon \
               --parallel \
@@ -62,16 +73,20 @@ jobs:
               1.21.10-fabric:build \
               1.21.10-neoforge:build \
               1.21.11-fabric:build \
-              1.21.11-neoforge:build && break
-          
+              1.21.11-neoforge:build; then
+              success=1
+              break
+            fi
+
             echo "Build failed on attempt $attempt"
             if [ "$attempt" -lt "$max_attempts" ]; then
               echo "Retrying in 10 seconds..."
               sleep 10
             fi
+            attempt=$((attempt+1))
           done
           
-          if [ "$attempt" -ge "$max_attempts" ]; then
+          if [ "$success" -ne 1 ]; then
             echo "Build failed after $max_attempts attempts"
             exit 1
           fi
@@ -110,6 +125,9 @@ jobs:
           MODRINTH_PROJECT_ID: ${{ secrets.MODRINTH_PROJECT_ID }}
           ENABLE_PUBLISHING: "true"
         run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+
           if [ -z "${MODRINTH_API_TOKEN}" ]; then
             echo "MODRINTH_API_TOKEN is not set"
             exit 1
@@ -119,31 +137,34 @@ jobs:
             exit 1
           fi
 
-          attempt=0
+          attempt=1
           max_attempts=3
+          success=0
 
-          until [ "$attempt" -ge "$max_attempts" ]
-          do
-            attempt=$((attempt+1))
+          while [ "$attempt" -le "$max_attempts" ]; do
             echo "Publish attempt $attempt of $max_attempts"
 
-            ./gradlew \
+            if ./gradlew \
               --console=plain \
               --no-daemon \
               --parallel \
               --max-workers=4 \
               -Dorg.gradle.jvmargs="-Xmx4G -XX:+HeapDumpOnOutOfMemoryError" \
               -Ppublish.modrinth="${MODRINTH_PROJECT_ID}" \
-              publishModrinth && break
+              publishModrinth; then
+              success=1
+              break
+            fi
 
             echo "Publish failed on attempt $attempt"
             if [ "$attempt" -lt "$max_attempts" ]; then
               echo "Retrying in 20 seconds..."
               sleep 20
             fi
+            attempt=$((attempt+1))
           done
 
-          if [ "$attempt" -ge "$max_attempts" ]; then
+          if [ "$success" -ne 1 ]; then
             echo "Publish failed after $max_attempts attempts"
             exit 1
           fi
