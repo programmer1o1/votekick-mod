@@ -13,6 +13,14 @@ on:
       - "v*"
   pull_request:
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag to release (for reuse, e.g. v3.0.0)"
+        required: true
+        default: "v3.0.0"
+      release_title:
+        description: "Release title (optional)"
+        required: false
 
 jobs:
   build:
@@ -150,117 +158,40 @@ jobs:
             !**/*-sources.jar
             !**/*-javadoc.jar
 
-  publish-modrinth:
+  release:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JDK
-        uses: actions/setup-java@v4
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
         with:
-          distribution: temurin
-          java-version: "21"
+          name: votekick-jars
+          path: dist
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Publish to Modrinth
-        env:
-          MODRINTH_API_TOKEN: ${{ secrets.MODRINTH_API_TOKEN }}
-          MODRINTH_PROJECT_ID: ${{ secrets.MODRINTH_PROJECT_ID }}
-          ENABLE_PUBLISHING: "true"
+      - name: Resolve release tag
+        id: release_tag
         run: |
-          set -euo pipefail
-          chmod +x ./gradlew
-
-          init_script="$(mktemp)"
-          cat > "$init_script" <<'EOF'
-          allprojects {
-            def fallback = System.getProperty("ci.modmenuFallback", "false").toBoolean()
-            if (!fallback) return
-            repositories {
-              maven {
-                url = uri("https://api.modrinth.com/maven")
-                name = "Modrinth"
-              }
-            }
-            configurations.configureEach {
-              resolutionStrategy.dependencySubstitution {
-                def modmenuVersion = project.findProperty("deps.modmenu")
-                if (modmenuVersion != null && modmenuVersion.toString().trim()) {
-                  substitute(module("com.terraformersmc:modmenu"))
-                    .using(module("maven.modrinth:modmenu:${modmenuVersion}"))
-                }
-              }
-              resolutionStrategy.eachDependency { details ->
-                if (details.requested.group == "com.terraformersmc" && details.requested.name == "modmenu") {
-                  def version = details.requested.version
-                  if (version != null && version.toString().trim()) {
-                    details.useTarget("maven.modrinth:modmenu:${version}")
-                  }
-                }
-              }
-            }
-          }
-          EOF
-
-          if [ -z "${MODRINTH_API_TOKEN}" ]; then
-            echo "MODRINTH_API_TOKEN is not set"
-            exit 1
-          fi
-          if [ -z "${MODRINTH_PROJECT_ID}" ]; then
-            echo "MODRINTH_PROJECT_ID is not set"
-            exit 1
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag_name }}" >> "$GITHUB_OUTPUT"
+            if [ -n "${{ inputs.release_title }}" ]; then
+              echo "title=${{ inputs.release_title }}" >> "$GITHUB_OUTPUT"
+            else
+              echo "title=${{ inputs.tag_name }}" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "title=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           fi
 
-          attempt=1
-          max_attempts=3
-          success=0
-
-          while [ "$attempt" -le "$max_attempts" ]; do
-            echo "Publish attempt $attempt of $max_attempts"
-
-            fallback_flag=""
-            if [ "$attempt" -ge 2 ]; then
-              fallback_flag="-Dci.modmenuFallback=true"
-            fi
-
-            extra_flags=""
-            if [ "$attempt" -eq "$max_attempts" ]; then
-              extra_flags="--stacktrace"
-            fi
-
-            if ./gradlew \
-              --console=plain \
-              --no-daemon \
-              --parallel \
-              --max-workers=4 \
-              -Dorg.gradle.jvmargs="-Xmx4G -XX:+HeapDumpOnOutOfMemoryError" \
-              -Dorg.gradle.internal.repository.max.retries=5 \
-              -Dorg.gradle.internal.repository.initial.backoff=1000 \
-              -Dorg.gradle.internal.http.connectionTimeout=30000 \
-              -Dorg.gradle.internal.http.socketTimeout=30000 \
-              $fallback_flag \
-              -I "$init_script" \
-              $extra_flags \
-              -Ppublish.modrinth="${MODRINTH_PROJECT_ID}" \
-              publishModrinth; then
-              success=1
-              break
-            fi
-
-            echo "Publish failed on attempt $attempt"
-            if [ "$attempt" -lt "$max_attempts" ]; then
-              echo "Retrying in 20 seconds..."
-              sleep 20
-            fi
-            attempt=$((attempt+1))
-          done
-
-          if [ "$success" -ne 1 ]; then
-            echo "Publish failed after $max_attempts attempts"
-            exit 1
-          fi
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_tag.outputs.tag }}
+          name: ${{ steps.release_tag.outputs.title }}
+          files: dist/**/*.jar
+          fail_on_unmatched_files: true
