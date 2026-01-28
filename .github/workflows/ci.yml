@@ -35,6 +35,29 @@ jobs:
           set -euo pipefail
           chmod +x ./gradlew
 
+          init_script="$(mktemp)"
+          cat > "$init_script" <<'EOF'
+          allprojects {
+            def fallback = System.getProperty("ci.modmenuFallback", "false").toBoolean()
+            if (!fallback) return
+            repositories {
+              maven {
+                url = uri("https://api.modrinth.com/maven")
+                name = "Modrinth"
+              }
+            }
+            configurations.configureEach {
+              resolutionStrategy.dependencySubstitution {
+                def modmenuVersion = project.findProperty("deps.modmenu")
+                if (modmenuVersion != null && modmenuVersion.toString().trim()) {
+                  substitute(module("com.terraformersmc:modmenu"))
+                    .using(module("maven.modrinth:modmenu:${modmenuVersion}"))
+                }
+              }
+            }
+          }
+          EOF
+
           attempt=1
           max_attempts=3
           success=0
@@ -47,6 +70,16 @@ jobs:
               refresh_deps="--refresh-dependencies"
             fi
 
+            fallback_flag=""
+            if [ "$attempt" -ge 2 ]; then
+              fallback_flag="-Dci.modmenuFallback=true"
+            fi
+
+            extra_flags=""
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              extra_flags="--stacktrace"
+            fi
+
             # Use parallel builds and increase memory
             if ./gradlew \
               $refresh_deps \
@@ -55,6 +88,13 @@ jobs:
               --parallel \
               --max-workers=4 \
               -Dorg.gradle.jvmargs="-Xmx4G -XX:+HeapDumpOnOutOfMemoryError" \
+              -Dorg.gradle.internal.repository.max.retries=5 \
+              -Dorg.gradle.internal.repository.initial.backoff=1000 \
+              -Dorg.gradle.internal.http.connectionTimeout=30000 \
+              -Dorg.gradle.internal.http.socketTimeout=30000 \
+              $fallback_flag \
+              -I "$init_script" \
+              $extra_flags \
               1.20.1-fabric:build \
               1.20.4-fabric:build \
               1.20.4-neoforge:build \
@@ -128,6 +168,29 @@ jobs:
           set -euo pipefail
           chmod +x ./gradlew
 
+          init_script="$(mktemp)"
+          cat > "$init_script" <<'EOF'
+          allprojects {
+            def fallback = System.getProperty("ci.modmenuFallback", "false").toBoolean()
+            if (!fallback) return
+            repositories {
+              maven {
+                url = uri("https://api.modrinth.com/maven")
+                name = "Modrinth"
+              }
+            }
+            configurations.configureEach {
+              resolutionStrategy.dependencySubstitution {
+                def modmenuVersion = project.findProperty("deps.modmenu")
+                if (modmenuVersion != null && modmenuVersion.toString().trim()) {
+                  substitute(module("com.terraformersmc:modmenu"))
+                    .using(module("maven.modrinth:modmenu:${modmenuVersion}"))
+                }
+              }
+            }
+          }
+          EOF
+
           if [ -z "${MODRINTH_API_TOKEN}" ]; then
             echo "MODRINTH_API_TOKEN is not set"
             exit 1
@@ -144,12 +207,29 @@ jobs:
           while [ "$attempt" -le "$max_attempts" ]; do
             echo "Publish attempt $attempt of $max_attempts"
 
+            fallback_flag=""
+            if [ "$attempt" -ge 2 ]; then
+              fallback_flag="-Dci.modmenuFallback=true"
+            fi
+
+            extra_flags=""
+            if [ "$attempt" -eq "$max_attempts" ]; then
+              extra_flags="--stacktrace"
+            fi
+
             if ./gradlew \
               --console=plain \
               --no-daemon \
               --parallel \
               --max-workers=4 \
               -Dorg.gradle.jvmargs="-Xmx4G -XX:+HeapDumpOnOutOfMemoryError" \
+              -Dorg.gradle.internal.repository.max.retries=5 \
+              -Dorg.gradle.internal.repository.initial.backoff=1000 \
+              -Dorg.gradle.internal.http.connectionTimeout=30000 \
+              -Dorg.gradle.internal.http.socketTimeout=30000 \
+              $fallback_flag \
+              -I "$init_script" \
+              $extra_flags \
               -Ppublish.modrinth="${MODRINTH_PROJECT_ID}" \
               publishModrinth; then
               success=1
