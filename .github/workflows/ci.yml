@@ -91,7 +91,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -119,8 +119,31 @@ jobs:
             exit 1
           fi
 
-          ./gradlew \
-            --console=plain \
-            --no-daemon \
-            -Ppublish.modrinth="${MODRINTH_PROJECT_ID}" \
-            publishModrinth
+          attempt=0
+          max_attempts=3
+
+          until [ "$attempt" -ge "$max_attempts" ]
+          do
+            attempt=$((attempt+1))
+            echo "Publish attempt $attempt of $max_attempts"
+
+            ./gradlew \
+              --console=plain \
+              --no-daemon \
+              --parallel \
+              --max-workers=4 \
+              -Dorg.gradle.jvmargs="-Xmx4G -XX:+HeapDumpOnOutOfMemoryError" \
+              -Ppublish.modrinth="${MODRINTH_PROJECT_ID}" \
+              publishModrinth && break
+
+            echo "Publish failed on attempt $attempt"
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              echo "Retrying in 20 seconds..."
+              sleep 20
+            fi
+          done
+
+          if [ "$attempt" -ge "$max_attempts" ]; then
+            echo "Publish failed after $max_attempts attempts"
+            exit 1
+          fi
