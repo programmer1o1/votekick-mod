@@ -54,6 +54,14 @@ jobs:
                     .using(module("maven.modrinth:modmenu:${modmenuVersion}"))
                 }
               }
+              resolutionStrategy.eachDependency { details ->
+                if (details.requested.group == "com.terraformersmc" && details.requested.name == "modmenu") {
+                  def version = details.requested.version
+                  if (version != null && version.toString().trim()) {
+                    details.useTarget("maven.modrinth:modmenu:${version}")
+                  }
+                }
+              }
             }
           }
           EOF
@@ -185,6 +193,14 @@ jobs:
                 if (modmenuVersion != null && modmenuVersion.toString().trim()) {
                   substitute(module("com.terraformersmc:modmenu"))
                     .using(module("maven.modrinth:modmenu:${modmenuVersion}"))
+                }
+              }
+              resolutionStrategy.eachDependency { details ->
+                if (details.requested.group == "com.terraformersmc" && details.requested.name == "modmenu") {
+                  def version = details.requested.version
+                  if (version != null && version.toString().trim()) {
+                    details.useTarget("maven.modrinth:modmenu:${version}")
+                  }
                 }
               }
             }
